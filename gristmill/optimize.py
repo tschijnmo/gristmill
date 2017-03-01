@@ -3,8 +3,8 @@
 import collections
 import typing
 
-from drudge import TensorDef
-from sympy import Integer, Symbol, Expr, IndexedBase
+from drudge import TensorDef, prod_, Term, Range
+from sympy import Integer, Symbol, Expr, IndexedBase, Number, Mul
 
 from .utils import get_cost_key
 
@@ -34,7 +34,7 @@ def optimize(
     substs
         A dictionary for making substitutions inside the sizes of ranges.  All
         the ranges need to have size in at most one undetermined variable after
-        the substitution.
+        the substitution so that they can be totally ordered.
 
     interm_fmt
         The format for the names of the intermediates.
@@ -63,12 +63,11 @@ def optimize(
 #
 
 
-_UNITY = Integer(1)
-_NEG_UNITY = Integer(-1)
-
-
 class _Optimizer:
-    """Optimizer for tensor contraction computations."""
+    """Optimizer for tensor contraction computations.
+
+    This internal optimizer can only be used once for one set of input.
+    """
 
     def __init__(self, computs, substs, interm_fmt):
         """Initialize the optimizer."""
@@ -82,16 +81,22 @@ class _Optimizer:
         self._interms = {}
         self._interms_canon = {}
 
+        self._res = None
+
     def optimize(self):
         """Optimize the evaluation of the given computations.
         """
+
+        if self._res is not None:
+            return self._res
 
         res_nodes = [self._form_node(i) for i in self._grist]
         for i in res_nodes:
             self._optimize(i)
             continue
 
-        return self._linearize(res_nodes)
+        self._res = self._linearize(res_nodes)
+        return self._res
 
     #
     # User input pre-processing and post-processing.
