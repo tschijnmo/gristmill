@@ -2,9 +2,10 @@
 
 import collections
 import typing
+import warnings
 
 from drudge import TensorDef, prod_, Term, Range
-from sympy import Integer, Symbol, Expr, IndexedBase, Number, Mul
+from sympy import Integer, Symbol, Expr, IndexedBase
 
 from .utils import get_cost_key
 
@@ -261,6 +262,109 @@ class _Optimizer:
         self._next_internal_idx += 1
         cls = Symbol if symbol else IndexedBase
         return cls('gristmillInternalIntermediate{}'.format(idx))
+
+    @staticmethod
+    def _write_in_orig_ranges(sums):
+        """Write the summations in terms of undecorated bare ranges."""
+        return tuple(
+            (i, j.replace_label(j.label[-1])) for i, j in sums
+        )
+
+    def _canon_terms(self, new_sums, terms):
+        """Form a canonical label for a list of terms.
+
+        The new summation list is prepended to the summation list of all terms.
+        The coefficient ahead of the canonical form is returned before the
+        canonical form.  And the permuted new summation list is also returned
+        after the canonical form.
+
+        Note that the ranges in the new summation list and the original
+        summation lists in the terms are assumed to be decorated.  The new
+        summations should come before all existing summations in the terms. In
+        the result, they are still in rewritten forms and are guaranteed to be
+        permuted in the same way for all given terms.  The summations from the
+        terms will be written in bare ranges.
+
+        Note that this is definitely a poor man's version of canonicalization of
+        multi-term tensor definitions with external indices.  A lot of cases
+        cannot be handled well.  Hopefully it can be replaced with a systematic
+        some day in the future.
+
+        """
+
+        n_new = len(new_sums)
+        new_dumms = {i for i, _ in new_sums}
+        coeff_cnt = collections.Counter()
+
+        candidates = collections.defaultdict(list)
+        for term in terms:
+            term, canon_sums = self._canon_term(new_sums, term)
+
+            # TODO: Add support for complex conjugation.
+            factors, coeff = term.amp_factors
+            coeff_cnt[coeff] += 1
+
+            candidates[term.map(lambda x: prod_(factors))].append(
+                canon_sums[:n_new]
+            )
+            continue
+
+        # Poor man's canonicalization of external indices.
+        #
+        # This algorithm is not guaranteed to work.  Here we just choose an
+        # ordering of the external indices that is as safe as possible.  But
+        # certainly it is not guaranteed to work for all cases.
+        #
+        # TODO: Fix it!
+
+        chosen = min(candidates.items(), key=lambda x: (
+            len(x[1]), -len(x[0].amp.atoms(Symbol) & new_dumms),
+            x[0].sort_key
+        ))
+
+        canon_new_sums = set(chosen[1])
+        if len(canon_new_sums) > 1:
+            warnings.warn(
+                'Internal deficiency: '
+                'summation intermediate may not be fully canonicalized'
+            )
+        # This could also fail when the chosen term has symmetry among the new
+        # summations not present in any other term.  This can be hard to check.
+
+        canon_new_sum = canon_new_sums.pop()
+        fixed_new_sum = tuple(
+            (v[0], v[1].replace_label((_EXT, i, v[1].label[-1])))
+            for i, v in enumerate(canon_new_sum)
+        )
+
+        canon_coeff = coeff_cnt.most_common(1)[0][0]
+        res_terms = []
+        for term in terms:
+            term, _ = self._canon_term(fixed_new_sum, term)
+            # TODO: Add support for complex conjugation.
+            res_terms.append(Term(
+                canon_new_sum + term.sums[n_new:], term.amp / canon_coeff, ()
+            ))
+            continue
+
+        return res_terms, canon_new_sum, canon_coeff
+
+    def _canon_term(self, new_sums, term):
+        """Canonicalize a single term."""
+
+        term = Term(new_sums + term.sums, term.amp, ())
+        canoned = term.canon(symms=self._drudge.symms.value)
+
+        canon_sums = canoned.sums
+        canon_orig_sums = self._write_in_orig_ranges(canon_sums)
+
+        dumm_reset, _ = canoned.map(
+            lambda x: x, sums=canon_orig_sums
+        ).reset_dumms(
+            dumms=self._dumms, excl=self._excl
+        )
+
+        return dumm_reset, canon_sums[:len(new_sums)]
 
     #
     # General optimization.
