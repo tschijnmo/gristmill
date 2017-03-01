@@ -107,9 +107,143 @@ class _Optimizer:
         """
 
         self._grist = []
+        self._drudge = None
+        self._range_var = None
         self._excl = set()
         self._input_ranges = {}
-        pass
+
+        # Form pre-grist, basically everything is set except the dummy variables
+        # for external indices and summations.
+        pre_grist = [
+            self._form_pre_grist(comput, substs) for comput in computs
+            ]
+
+        # Finalize grist formation by resetting the dummies.
+        self._dumms = {
+            k: self._drudge.dumms.value[v]
+            for k, v in self._input_ranges.items()
+            }
+
+        self._grist = [self._reset_dumms(grain) for grain in pre_grist]
+
+        return
+
+    def _form_pre_grist(self, comput, substs):
+        """Form grist from a given computation.
+        """
+
+        curr_drudge = comput.rhs.drudge
+        if self._drudge is None:
+            self._drudge = curr_drudge
+        elif self._drudge is not curr_drudge:
+            raise ValueError(
+                'Invalid computations to optimize, containing two drudges',
+                (self._drudge, curr_drudge)
+            )
+        else:
+            pass
+
+        # Externals processing.
+        exts = self._proc_sums(comput.exts, substs)
+        ext_symbs = {i for i, _ in exts}
+
+        # Terms processing.
+        terms = []
+        for term in comput.local_terms:
+            if not term.is_scalar:
+                raise ValueError('Invalid term', term, 'expecting scalar')
+            sums = self._proc_sums(term.sums, substs)
+            amp = term.amp
+
+            # Add the true free symbols to the exclusion set.
+            self._excl |= term.free_vars - ext_symbs
+            terms.append(Term(sums, amp, ()))
+
+            continue
+
+        return _Grain(exts=exts, terms=terms)
+
+    def _proc_sums(self, sums, substs):
+        """Process a summation list.
+
+        The ranges will be replaced with substitution sizes.  Relevant members
+        of the group will also be updated.  User error will also be reported.
+        """
+
+        res = []
+        for symb, range_ in sums:
+
+            if not range_.bounded:
+                raise ValueError(
+                    'Invalid range for optimization', range_,
+                    'expecting explicit bound'
+                )
+            lower, upper = [
+                self._check_range_var(range_, i.xreplace(substs))
+                for i in [range_.lower, range_.upper]
+                ]
+
+            new_range = Range(range_.label, lower=lower, upper=upper)
+            if new_range not in self._input_ranges:
+                self._input_ranges[new_range] = range_
+            elif range_ != self._input_ranges[new_range]:
+                raise ValueError(
+                    'Invalid ranges', (range_, self._input_ranges[new_range]),
+                    'duplicated labels'
+                )
+            else:
+                pass
+
+            res.append((symb, new_range))
+            continue
+
+        return tuple(res)
+
+    def _check_range_var(self, range_, expr) -> Expr:
+        """Check size expression for valid symbol presence."""
+
+        range_vars = expr.atoms(Symbol)
+        if len(range_vars) == 0:
+            pass
+        elif len(range_vars) == 1:
+
+            range_var = range_vars.pop()
+            if self._range_var is None:
+                self._range_var = range_var
+            elif self._range_var != range_var:
+                raise ValueError(
+                    'Invalid range', range_, 'unexpected symbol',
+                    range_var, 'conflicting with', self._range_var
+                )
+            else:
+                pass
+        else:
+            raise ValueError(
+                'Invalid range', range_, 'containing multiple symbols',
+                range_vars
+            )
+
+        return expr
+
+    def _reset_dumms(self, grain):
+        """Reset the dummies in a grain."""
+
+        exts, ext_substs, dummbegs = Term.reset_sums(
+            grain.exts, self._dumms, excl=self._excl
+        )
+        terms = []
+        for term in grain.terms:
+            sums, curr_substs, _ = Term.reset_sums(
+                term.sums, self._dumms,
+                dummbegs=dict(dummbegs), excl=self._excl
+            )
+            curr_substs.update(ext_substs)
+            terms.append(term.map(
+                lambda x: x.xreplace(curr_substs), sums=sums
+            ))
+            continue
+
+        return _Grain(exts=exts, terms=terms)
 
     def _linearize(self, optimized) -> typing.List[TensorDef]:
         """Linearize optimized forms of the evaluation.
