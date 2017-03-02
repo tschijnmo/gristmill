@@ -1,6 +1,7 @@
 """Optimizer for the contraction computations."""
 
 import collections
+import itertools
 import typing
 import warnings
 
@@ -278,12 +279,11 @@ class _Optimizer:
         canonical form.  And the permuted new summation list is also returned
         after the canonical form.
 
-        Note that the ranges in the new summation list and the original
-        summation lists in the terms are assumed to be decorated.  The new
-        summations should come before all existing summations in the terms. In
-        the result, they are still in rewritten forms and are guaranteed to be
-        permuted in the same way for all given terms.  The summations from the
-        terms will be written in bare ranges.
+        Note that the ranges in the new summation list are assumed to be
+        decorated with labels earlier than _SUMMED.  In the result, they are
+        still in decorated forms and are guaranteed to be permuted in the same
+        way for all given terms.  The summations from the terms will be
+        internally decorated but written in bare ranges in the final result.
 
         Note that this is definitely a poor man's version of canonicalization of
         multi-term tensor definitions with external indices.  A lot of cases
@@ -292,7 +292,6 @@ class _Optimizer:
 
         """
 
-        n_new = len(new_sums)
         new_dumms = {i for i, _ in new_sums}
         coeff_cnt = collections.Counter()
 
@@ -304,9 +303,9 @@ class _Optimizer:
             factors, coeff = term.amp_factors
             coeff_cnt[coeff] += 1
 
-            candidates[term.map(lambda x: prod_(factors))].append(
-                canon_sums[:n_new]
-            )
+            candidates[
+                term.map(lambda x: prod_(factors))
+            ].append(canon_sums)
             continue
 
         # Poor man's canonicalization of external indices.
@@ -332,27 +331,33 @@ class _Optimizer:
         # summations not present in any other term.  This can be hard to check.
 
         canon_new_sum = canon_new_sums.pop()
-        fixed_new_sum = tuple(
-            (v[0], v[1].replace_label((_EXT, i, v[1].label[-1])))
-            for i, v in enumerate(canon_new_sum)
-        )
-
         canon_coeff = coeff_cnt.most_common(1)[0][0]
         res_terms = []
         for term in terms:
-            term, _ = self._canon_term(fixed_new_sum, term)
+            term, _ = self._canon_term(canon_new_sum, term, fix_new=True)
             # TODO: Add support for complex conjugation.
-            res_terms.append(Term(
-                canon_new_sum + term.sums[n_new:], term.amp / canon_coeff, ()
-            ))
+            res_terms.append(term.map(lambda x: x / canon_coeff))
             continue
 
-        return res_terms, canon_new_sum, canon_coeff
+        return canon_coeff, res_terms, canon_new_sum
 
-    def _canon_term(self, new_sums, term):
-        """Canonicalize a single term."""
+    def _canon_term(self, new_sums, term, fix_new=False):
+        """Canonicalize a single term.
 
-        term = Term(new_sums + term.sums, term.amp, ())
+        Internal method for _canon_terms, not supposed to be directly called.
+        """
+
+        n_new = len(new_sums)
+        term = Term(tuple(itertools.chain(
+            (
+                (v[0], v[1].replace_label((_EXT, i, v[1].label[-1])))
+                for i, v in enumerate(new_sums)
+            ) if fix_new else new_sums,
+            (
+                (i, j.replace_label((_SUMMED, j)))
+                for i, j in term.sums
+            )
+        )), term.amp, ())
         canoned = term.canon(symms=self._drudge.symms.value)
 
         canon_sums = canoned.sums
@@ -364,7 +369,14 @@ class _Optimizer:
             dumms=self._dumms, excl=self._excl
         )
 
-        return dumm_reset, canon_sums[:len(new_sums)]
+        canon_new_sums = canon_sums[:len(new_sums)]
+        return dumm_reset.map(lambda x: x, sums=tuple(itertools.chain(
+            (
+                (i[0], j[1])
+                for i, j in zip(dumm_reset.sums, canon_new_sums)
+            ),
+            dumm_reset.sums[n_new:]
+        ))), canon_new_sums
 
     #
     # General optimization.
