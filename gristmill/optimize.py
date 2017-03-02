@@ -424,16 +424,7 @@ class _Optimizer:
             factors, coeff = term.amp_factors
             return _Prod(self, exts, term.sums, coeff, factors)
         else:
-
-            sum_terms = []
-            for term in terms:
-                sums = term.sums
-                factors, coeff = term.amp_factors
-                interm_ref = self._form_prod_interm(exts, sums, factors)
-                sum_terms.append(interm_ref * coeff)
-                continue
-
-            return _Sum(exts, sum_terms)
+            return self._form_sum_from_terms(exts, terms)
 
     def _optimize(self, node):
         """Optimize the evaluation of the given node."""
@@ -467,7 +458,7 @@ class _Optimizer:
         if key in self._interms_canon:
             base = self._interms_canon[key]
         else:
-            base = self._get_next_internal(len(exts) == 0)
+            base = self._get_next_internal(n_exts == 0)
             self._interms_canon[key] = base
 
             key_term = key[0]
@@ -482,13 +473,60 @@ class _Optimizer:
             self._interms[base] = interm
 
         return coeff * base[tuple(
-            canon_exts[i][0] for i in range(n_exts)
+            i for i, _ in canon_exts
         )]
 
-    def _form_sum_interm(self, collect_res) -> Expr:
+    def _form_sum_interm(self, exts, terms) -> Expr:
         """Form a sum intermediate.
         """
-        return None
+
+        decored_exts = [
+            (i, j.replace_label((_EXT, j.label)))
+            for i, j in exts
+            ]
+        n_exts = len(decored_exts)
+
+        coeff, canon_terms, canon_exts = self._canon_terms(decored_exts, terms)
+
+        if canon_terms in self._interms_canon:
+            base = self._interms_canon[canon_terms]
+        else:
+            base = self._get_next_internal(n_exts == 0)
+
+            node_exts = None
+            node_terms = []
+            for term in canon_terms:
+                term_exts = self._write_in_orig_ranges(term.sums[:n_exts])
+                if node_exts is None:
+                    node_exts = term_exts
+                else:
+                    assert node_exts == term_exts
+                node_terms.append(term.map(
+                    lambda x: x, sums=term.sums[n_exts:]
+                ))
+                continue
+
+            node = self._form_sum_from_terms(node_exts, node_terms)
+            self._interms[base] = node
+
+        return coeff * base[tuple(
+            i for i, _ in canon_exts
+        )]
+
+    def _form_sum_from_terms(self, exts, terms):
+        """Form a summation node for given the terms.
+
+        No processing is done in this method.
+        """
+        sum_terms = []
+        for term in terms:
+            sums = term.sums
+            factors, coeff = term.amp_factors
+            interm_ref = self._form_prod_interm(exts, sums, factors)
+            sum_terms.append(interm_ref * coeff)
+            continue
+
+        return _Sum(exts, sum_terms)
 
     #
     # Sum optimization.
