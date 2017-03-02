@@ -381,6 +381,30 @@ class _Optimizer:
             dumm_reset.sums[n_new:]
         ))), canon_new_sums
 
+    def _parse_interm_ref(self, sum_term: Expr):
+        """Get the coefficient and pure intermediate reference in a reference.
+
+        Despite being SymPy expressions, actually intermediate reference, for
+        instance in a term in an summation node is very rigid.
+        """
+
+        if isinstance(sum_term, Mul):
+            args = sum_term.args
+            assert len(args) == 2
+            if self._is_interm_ref(args[1]):
+                return args
+            else:
+                assert self._is_interm_ref(args[0])
+                return args[1], args[0]
+        else:
+            return _UNITY, sum_term
+
+    def _is_interm_ref(self, expr: Expr):
+        """Test if an expression is a reference to an intermediate."""
+        return (isinstance(expr, Indexed) and expr.base in self._interms) or (
+            expr in self._interms
+        )
+
     #
     # General optimization.
     #
