@@ -6,9 +6,9 @@ import typing
 import warnings
 
 from drudge import TensorDef, prod_, Term, Range
-from sympy import Integer, Symbol, Expr, IndexedBase
+from sympy import Integer, Symbol, Expr, IndexedBase, Mul, Indexed
 
-from .utils import get_cost_key
+from .utils import get_cost_key, add_costs
 
 
 #
@@ -277,7 +277,9 @@ class _Optimizer:
         The new summation list is prepended to the summation list of all terms.
         The coefficient ahead of the canonical form is returned before the
         canonical form.  And the permuted new summation list is also returned
-        after the canonical form.
+        after the canonical form.  Note that this list contains the original
+        dummies given in the new summation list, while the terms has reset new
+        dummies.
 
         Note that the ranges in the new summation list are assumed to be
         decorated with labels earlier than _SUMMED.  In the result, they are
@@ -288,7 +290,7 @@ class _Optimizer:
         Note that this is definitely a poor man's version of canonicalization of
         multi-term tensor definitions with external indices.  A lot of cases
         cannot be handled well.  Hopefully it can be replaced with a systematic
-        some day in the future.
+        treatment some day in the future.
 
         """
 
@@ -299,7 +301,6 @@ class _Optimizer:
         for term in terms:
             term, canon_sums = self._canon_term(new_sums, term)
 
-            # TODO: Add support for complex conjugation.
             factors, coeff = term.amp_factors
             coeff_cnt[coeff] += 1
 
@@ -339,7 +340,9 @@ class _Optimizer:
             res_terms.append(term.map(lambda x: x / canon_coeff))
             continue
 
-        return canon_coeff, tuple(res_terms), canon_new_sum
+        return canon_coeff, tuple(
+            sorted(res_terms, key=lambda x: x.sort_key())
+        ), canon_new_sum
 
     def _canon_term(self, new_sums, term, fix_new=False):
         """Canonicalize a single term.
