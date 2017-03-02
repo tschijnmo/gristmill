@@ -339,7 +339,7 @@ class _Optimizer:
             res_terms.append(term.map(lambda x: x / canon_coeff))
             continue
 
-        return canon_coeff, res_terms, canon_new_sum
+        return canon_coeff, tuple(res_terms), canon_new_sum
 
     def _canon_term(self, new_sums, term, fix_new=False):
         """Canonicalize a single term.
@@ -382,13 +382,13 @@ class _Optimizer:
     # General optimization.
     #
 
-    def _form_node(self, grain: TensorDef):
+    def _form_node(self, grain: _Grain):
         """Form an evaluation node from a tensor definition.
         """
 
         # We assume it is fully simplified and expanded by grist preparation.
-        terms = grain.rhs_terms
         exts = grain.exts
+        terms = grain.terms
 
         if len(terms) == 0:
             assert False  # Should be removed by grist preparation.
@@ -420,8 +420,43 @@ class _Optimizer:
 
     def _form_prod_interm(self, exts, sums, factors) -> Expr:
         """Form a product intermediate.
+
+        The factors are assumed to be all non-trivial factors needing
+        processing.
         """
-        return None
+
+        decored_exts = tuple(
+            (i, j.replace_label((_EXT, j.label)))
+            for i, j in exts
+        )
+        n_exts = len(decored_exts)
+        term = Term(tuple(sums), prod_(factors), ())
+
+        coeff, key, canon_exts = self._canon_terms(
+            decored_exts, [term]
+        )
+        assert len(key) == 1
+
+        if key in self._interms_canon:
+            base = self._interms_canon[key]
+        else:
+            base = self._get_next_internal(len(exts) == 0)
+            self._interms_canon[key] = base
+
+            key_term = key[0]
+            canon_exts = self._write_in_orig_ranges(key_term.sums[:n_exts])
+            canon_sums = key_term.sums[n_exts:]
+            canon_factors, canon_coeff = key_term.amp_factors
+            interm = _Prod(
+                canon_exts, canon_sums, canon_coeff, canon_factors
+            )
+            interm.canon = key
+            interm.base = base
+            self._interms[base] = interm
+
+        return coeff * base[tuple(
+            canon_exts[i][0] for i in range(n_exts)
+        )]
 
     def _form_sum_interm(self, collect_res) -> Expr:
         """Form a sum intermediate.
