@@ -405,6 +405,14 @@ class _Optimizer:
             expr in self._interms
         )
 
+    def _get_def(self, interm_ref: Expr) -> typing.List[Term]:
+        """Get the definition of an intermediate reference.
+
+        The intermediate reference need to be a pure intermediate reference
+        without any factor.
+        """
+        pass
+
     #
     # General optimization.
     #
@@ -422,7 +430,7 @@ class _Optimizer:
         elif len(terms) == 1:
             term = terms[0]
             factors, coeff = term.amp_factors
-            return _Prod(self, exts, term.sums, coeff, factors)
+            return _Prod(exts, term.sums, coeff, factors)
         else:
             return self._form_sum_from_terms(exts, terms)
 
@@ -535,76 +543,227 @@ class _Optimizer:
     def _optimize_sum(self, sum_node: _Sum):
         """Optimize the summation node."""
 
-        terms = sum_node.sum_terms
+        # In this function, term is short for sum term.
+        terms = list(sum_node.sum_terms)
+        exts = sum_node.exts
 
+        collectibles = collections.defaultdict(dict)  # type: _Collectibles
+
+        new_term_idxes = list(i for i, _ in enumerate(terms))
         while True:
-            collectible, term_idxes = self._find_collectible(terms)
-            if collectible is None:
-                break
-            terms = self._collect(terms, collectible, term_idxes)
-            continue
 
-        return _Sum(sum_node.exts, terms)
+            for idx in new_term_idxes:
+                term = terms[idx]
 
-    def _find_collectible(self, terms):
-        """Find a collectible factor among the terms in a sum."""
+                for i, j in self._find_collectibles(exts, term):
+                    infos = collectibles[i]
+                    if idx not in infos:
+                        # The same term cannot provide the same collectible
+                        # twice.
+                        infos[idx] = j
+                    continue
 
-        collectibles = {}
-
-        for idx, term in enumerate(terms):
-            for i, j in self._get_collectibles(term):
-                if i in collectibles:
-                    collectibles[i].term_idxes.append(idx)
-                else:
-                    collectibles[i] = _CollectibleInfo(
-                        saving_factor=j, term_idxes=[idx]
-                    )
                 continue
+            new_term_idxes.clear()
+
+            to_collect, infos = self._choose_collectible(collectibles)
+            if to_collect is None:
+                break
+
+            new_term_idx = self._collect(terms, infos)
+            new_term_idxes.append(new_term_idx)
+
+            continue
+        # End Main loop.
+
+        sum_node.evals = [
+            _Sum(sum_node.exts, [i for i in terms if i is not None])
+        ]
+        return
+
+    def _find_collectibles(self, exts, term):
+        """Find the collectibles from a given term."""
+
+        coeff, factor = self._parse_interm_ref(term)
+
+        res = []  # type: typing.List[typing.Tuple[_Collectible, _CollectInfo]]
+
+        if coeff != 1 and coeff != -1:
+            # TODO: Add attempt to collect the coefficient.
+            #
+            # This could give some minor saving.
+            pass
+
+        prod_node = self._interms[factor.base]
+        if len(prod_node.factors) > 2:
+            # Single-factor does not offer collectible,
+            # collectible * (something + 1) is so rare in real applications.
+
+            if prod_node.evals is None:
+                self._optimize_prod(prod_node)
+
+            for eval_i in prod_node.evals:
+                res.extend(self._find_collectibles_eval(
+                    exts, eval_i
+                ))
+                continue
+
+        return res
+
+    def _find_collectibles_eval(self, exts, eval_: _Prod):
+        """Get the collectibles for a particular evaluations of a product."""
+
+        sums = eval_.sums
+        factors = eval_.factors
+        assert len(factors) == 2
+
+        # Each evaluation could give two collectibles.
+        res = []
+        for lr in range(2):
+            factor = factors[lr]
+            collectible, ranges, coeff, substs = self._get_collectible_interm(
+                exts, sums, factor
+            )
+            res.append((collectible, _CollectInfo(
+                eval_=eval_, lr=lr,
+                coeff=coeff, substs=substs, ranges=ranges
+            )))
             continue
 
-        return self._choose_collectible(collectibles)
+        return res
 
-    def _get_collectibles(self, term):
-        """Get the collectible factors in a sum term."""
-        pass
+    def _get_collectible_interm(self, exts, sums, interm_ref):
+        """Get a collectible from an intermediate reference."""
 
-    def _choose_collectible(self, collectibles):
-        """Choose the most profitable collectible factor."""
-        chosen = max((
-            (i, j.saving_factor * (len(j.term_idxes) - 1), j.term_idxes)
-            for i, j in collectibles.items()
-        ), key=lambda x: get_cost_key(x[1]))
+        terms = self._get_def(interm_ref)
+        involved_symbs = interm_ref.atoms(Symbol)
 
-        return (chosen[0], chosen[2]) if chosen[1] != 0 else (None, None)
+        involved_exts = []
+        other_exts = []
+        for i, v in enumerate(exts):
+            symb, range_ = v
+            if symb in involved_symbs:
+                involved_exts.append((
+                    symb, range_.replace_label((_EXT, i, range_.label))
+                ))
+            else:
+                other_exts.append((symb, range_))  # Undecorated.
+            continue
 
-    def _collect(self, terms, collectible, term_idxes):
-        """Collect the given collectible factor."""
+        involved_sums = []
+        for i, j in sums:
+            # Sums not involved in both should be pushed in.
+            assert (i in involved_symbs)
+            involved_sums.append((
+                i, j.replace_label((_SUMMED_EXT, j.label))
+            ))
+            continue
 
-        new_terms = [
-            v for i, v in enumerate(terms)
-            if i not in set(term_idxes)
-            ]  # Start with the untouched ones.
-
-        to_collect = [
-            self._collect_term(terms[i], collectible) for i in term_idxes
-            ]
-        new_ref = self._form_sum_interm(to_collect)
-
-        new_terms.append(
-            self._form_collected(collectible, new_ref)
+        coeff, key, all_sums = self._canon_terms(
+            involved_exts + involved_sums, terms
+        )
+        ranges = _Ranges(
+            involved_exts=self._write_in_orig_ranges(involved_exts),
+            sums=self._write_in_orig_ranges(involved_sums),
+            other_exts=other_exts
         )
 
-        return new_terms
+        new_sums = (i for i in all_sums if i[1].label[0] == _SUMMED_EXT)
+        return key, ranges, coeff, {
+            i[0]: j[0]
+            for i, j in zip(sums, new_sums)
+            }
 
-    def _collect_term(self, term, collectible):
-        """Collect the given collectible from the given term.
-        """
-        pass
+    def _choose_collectible(self, collectibles: _Collectibles):
+        """Choose the most profitable collectible factor."""
 
-    def _form_collected(self, collectible, new_ref):
-        """Form new sum term with some factors collected.
+        with_saving = (
+            i for i in collectibles.items() if len(i[1]) > 1
+        )
+
+        try:
+            return max(with_saving, key=lambda x: get_cost_key(
+                self._get_collectible_saving(next(x[1].values()).ranges)
+            ))
+        except StopIteration:
+            return None, None
+
+    @staticmethod
+    def _get_collectible_saving(ranges: _Ranges) -> Expr:
+        """Get the saving factor for a collectible."""
+
+        other_size = prod_(i.size for _, i in ranges.other_exts)
+        sum_size = prod_(i.size for _, i in ranges.sums)
+        ext_size = prod_(i.size for _, i in ranges.involved_exts)
+
+        return other_size * add_costs(
+            2 * sum_size * ext_size, ext_size, -sum_size
+        )
+
+    def _collect(self, terms, collect_infos: _CollectInfos):
+        """Collect the given collectible factor.
+
+        This function will mutate the given terms list.  Set one of the
+        collected terms to the new sum term, whose index is going to be
+        returned, with all the rest collected terms set to None.
         """
-        pass
+
+        residue_terms = []
+        residue_exts = None
+        new_term_idx = min(collect_infos.keys())
+        for k, v in collect_infos.items():
+
+            coeff, _ = self._parse_interm_ref(terms[k])
+            eval_ = v.eval_
+            coeff *= eval_.coeff * v.coeff  # Three levels of coefficients.
+
+            residue_terms.extend(
+                i.map(lambda x: coeff * x.xreplace(v.substs))
+                for i in self._get_def(eval_.factors[0 if v.lr == 1 else 1])
+            )
+
+            curr_exts = list(sorted(itertools.chain(
+                v.ranges.sums, v.ranges.other_exts
+            )))
+            if residue_exts is None:
+                residue_exts = curr_exts
+            else:
+                assert residue_exts == curr_exts
+
+            continue
+
+        new_ref = self._form_sum_interm(residue_exts, residue_terms)
+
+        for k, v in collect_infos.items():
+            if k == new_term_idx:
+                terms[k] = self._form_collected(terms[k], v, new_ref)
+            else:
+                terms[k] = None
+
+        return new_term_idx
+
+    def _form_collected(self, term, info: _CollectInfo, new_ref) -> Expr:
+        """Form new sum term with some factors collected based on a term.
+        """
+
+        eval_ = info.eval_
+        collected_factor = eval_.factors[info.lr].xreplace(info.substs)
+
+        interm_coeff, interm = self._parse_interm_ref(new_ref)
+        coeff = interm_coeff / info.coeff
+
+        _, orig_node = self._parse_interm_ref(term)
+        orig_exts = orig_node.exts
+
+        new_node = _Prod(orig_exts, orig_node.sums, coeff, [
+            collected_factor, interm
+        ])
+        new_node.evals = [new_node]
+
+        base = self._get_next_internal(len(orig_exts) == 0)
+        self._interms[base] = new_node
+
+        return base[tuple(i for i, _ in orig_exts)]
 
     #
     # Product optimization.
@@ -612,6 +771,62 @@ class _Optimizer:
 
     def _optimize_prod(self, prod_node):
         """Optimize the product evaluation node."""
+
+
+#
+# Utility constants.
+#
+
+
+_UNITY = Integer(1)
+_NEG_UNITY = Integer(-1)
+
+_EXT = 0
+_SUMMED_EXT = 1
+_SUMMED = 2
+
+#
+# Small type definitions.
+#
+
+
+_Grain = collections.namedtuple('_Grain', [
+    'exts',
+    'terms'
+])
+
+#
+# The information on collecting a collectible.
+#
+# Interpretation, after the substitutions given in ``substs``, the ``lr`` factor
+# in the evaluation ``eval_`` will be turned into ``coeff`` times the actual
+# collectible.
+#
+
+_CollectInfo = collections.namedtuple('_Residue', [
+    'eval_',
+    'lr',
+    'coeff',
+    'substs',
+    'ranges'
+])
+
+_Ranges = collections.namedtuple('_Ranges', [
+    'involved_exts',
+    'sums',
+    'other_exts'
+])
+
+_Collectible = typing.Tuple[Term, ...]
+
+_CollectInfos = typing.Dict[int, _CollectInfo]
+
+_Collectibles = typing.Dict[_Collectible, _CollectInfos]
+
+
+#
+# Core evaluation DAG nodes.
+#
 
 
 class _EvalNode:
@@ -623,13 +838,8 @@ class _EvalNode:
         """
 
         self.exts = exts
+        self.evals = []  # type: typing.List[_EvalNode]
         self.n_refs = 0
-
-
-_CollectibleInfo = collections.namedtuple('_CollectibleInfo', [
-    'saving_factor',
-    'term_idxes'
-])
 
 
 class _Sum(_EvalNode):
@@ -645,10 +855,10 @@ class _Prod(_EvalNode):
     """Product nodes in the evaluation graph.
     """
 
-    def __init__(self, exts, sums, coeff, factors, evals=None):
+    def __init__(self, exts, sums, coeff, factors):
         """Initialize the node."""
         super().__init__(exts)
         self.sums = sums
         self.coeff = coeff
         self.factors = factors
-        self.evals = evals
+        self.canon = None
