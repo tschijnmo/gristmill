@@ -28,3 +28,14 @@ def get_cost_key(cost: Expr):
             'Invalid cost to compare', cost,
             'expecting univariate polynomial or number'
         )
+
+
+def add_costs(*args):
+    """Add the arguments as costs.
+
+    Here when one of the operand is unity, it will be taken as a zero in the
+    summation.
+    """
+
+    res = sum(i if abs(i) != 1 else 0 for i in args)
+    return res if res != 0 else 1
