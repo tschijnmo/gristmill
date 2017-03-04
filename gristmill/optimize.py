@@ -411,7 +411,50 @@ class _Optimizer:
         The intermediate reference need to be a pure intermediate reference
         without any factor.
         """
-        pass
+
+        if isinstance(interm_ref, Indexed):
+            base = interm_ref.base
+            indices = interm_ref.indices
+        elif isinstance(interm_ref, Symbol):
+            base = interm_ref
+            indices = None
+        else:
+            raise TypeError('Invalid intermediate reference', interm_ref)
+
+        if base not in self._interms:
+            raise ValueError('Invalid intermediate base', base)
+
+        node = self._interms[base]
+        substs = {}
+        new_symbs = set()
+
+        assert len(indices) == len(node.exts)
+        for i, j in zip(indices, node.exts):
+            substs[j[0]] = i
+            new_symbs |= i.atoms(Symbol)
+            continue
+
+        res = []
+
+        if isinstance(node, _Prod):
+
+            # TODO: Add handling of sum intermediate reference in factors.
+            term = Term(
+                node.sums, node.coeff * prod_(node.factors), ()
+            ).reset_dumms(
+                self._dumms, excl=self._excl | new_symbs
+            ).map(lambda x: x.xreplace(substs))
+            res.append(term)
+
+        elif isinstance(node, _Sum):
+            for i in node.sum_terms:
+                coeff, ref = self._parse_interm_ref(i.xreplace(substs))
+                term = self._get_def(ref)[0].scale(coeff)
+                res.append(term)
+        else:
+            assert False
+
+        return res
 
     #
     # General optimization.
