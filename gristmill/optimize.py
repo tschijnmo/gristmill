@@ -642,7 +642,7 @@ class _Optimizer:
             # Single-factor does not offer collectible,
             # collectible * (something + 1) is so rare in real applications.
 
-            if prod_node.evals is None:
+            if len(prod_node.evals) == 0:
                 self._optimize_prod(prod_node)
 
             for eval_i in prod_node.evals:
