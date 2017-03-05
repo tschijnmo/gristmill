@@ -1,14 +1,16 @@
 """Optimizer for the contraction computations."""
 
 import collections
+import heapq
 import itertools
 import typing
 import warnings
 
 from drudge import TensorDef, prod_, Term, Range
 from sympy import Integer, Symbol, Expr, IndexedBase, Mul, Indexed
+from sympy.utilities.iterables import multiset_partitions
 
-from .utils import get_cost_key, add_costs
+from .utils import get_cost_key, add_costs, DSF
 
 
 #
@@ -813,7 +815,223 @@ class _Optimizer:
     #
 
     def _optimize_prod(self, prod_node):
-        """Optimize the product evaluation node."""
+        """Optimize the product evaluation node.
+
+        After this method is called on a product node, the evaluations and the
+        cost are guaranteed to be set.
+        """
+
+        if len(prod_node.evals) > 0:
+            return
+
+        if len(prod_node.factors) < 3:
+            prod_node.evals.append(prod_node)
+            # TODO: Add cost setting.
+            return
+
+        evals = prod_node.evals
+        curr_total = None
+        for final_cost, parts_gen in self._gen_factor_parts(prod_node):
+            if_break = (
+                curr_total is not None
+                and get_cost_key(final_cost) > curr_total[0]
+            )
+            if if_break:
+                break
+            # Else
+
+            for parts in parts_gen:
+
+                # Recurse.
+                for i in parts:
+                    self._optimize_prod(i.node)
+                    continue
+
+                total_cost = (
+                    final_cost
+                    + parts[0].node.total_cost
+                    + parts[1].node.total_cost
+                )
+                total_cost_key = get_cost_key(total_cost)
+                if curr_total is None or curr_total[0] > total_cost_key:
+                    curr_total = (total_cost_key, total_cost)
+                    evals.clear()
+                    evals.append(self._form_prod_eval(prod_node, parts))
+                elif curr_total[0] == total_cost_key:
+                    evals.append(self._form_prod_eval(prod_node, parts))
+
+                continue
+
+        prod_node.total_cost = curr_total[1]
+        return
+
+    def _gen_factor_parts(self, prod_node: _Prod):
+        """Generate all the partitions of factors in a product node."""
+
+        # Compute things invariant to different summations for performance.
+        exts = prod_node.exts
+        exts_total_size = prod_(i.size for _, i in exts)
+
+        factor_atoms = [i.atoms(Symbol) for i in prod_node.factors]
+
+        sum_involve = [
+            {j for j, v in enumerate(factor_atoms) if i in v}
+            for i, _ in prod_node.sums
+            ]
+
+        dumm2index = tuple(
+            {v[0]: j for j, v in enumerate(i)}
+            for i in [prod_node.exts, prod_node.sums]
+        )
+        factor_infos = [
+            tuple([i[j] for j in atoms if j in i] for i in dumm2index)
+            for atoms in factor_atoms
+            ]
+
+        for kept in self._gen_broken_kept_sums(prod_node.sums):
+            final_cost = self._get_prod_final_cost(
+                exts_total_size,
+                [i for i, j in zip(prod_node.sums, kept) if not j]
+            )
+            yield final_cost, self._gen_parts_w_kept_sums(
+                prod_node, kept, sum_involve, factor_infos
+            )
+            continue
+
+    @staticmethod
+    def _gen_broken_kept_sums(sums):
+        """Generate kept summations in increasing size of broken summations.
+
+        The results will be given as boolean array giving if the corresponding
+        entry is to be kept.
+        """
+
+        sizes = [i.size for _, i in sums]
+        n_sums = len(sizes)
+
+        def get_size(kept):
+            """Get the total broken summation size."""
+            return prod_(i for i, j in zip(sizes, kept) if not j)
+
+        init = list(range(n_sums))  # Everything is kept.
+        queue = [(get_size(init), init)]
+        while len(queue) > 0:
+            curr = heapq.heappop(queue)
+            yield curr
+            curr_kept = curr[1]
+            for i in range(n_sums):
+                if curr_kept[i]:
+                    new_kept = list(curr_kept)
+                    new_kept[i] = False
+                    heapq.heappush(
+                        queue,
+                        (get_size(new_kept), new_kept)
+                    )
+                    continue
+                else:
+                    break
+            continue
+
+    def _gen_parts_w_kept_sums(
+            self, prod_node: _Prod, kept, sum_involve, factor_infos
+    ):
+        """Generate all partitions with given summations kept."""
+
+        dsf = DSF(i for i, _ in enumerate(factor_infos))
+
+        for i, j in zip(kept, sum_involve):
+            if i:
+                dsf.union(j)
+            continue
+
+        chunks = dsf.sets
+        if len(chunks) < 2:
+            return
+
+        for part in self._gen_parts_from_chunks(kept, chunks, sum_involve):
+            yield tuple(
+                self._form_part(prod_node, i, sum_involve, factor_infos)
+                for i in part
+            )
+
+    @staticmethod
+    def _gen_parts_from_chunks(kept, chunks, sum_involve):
+        """Generate factor partitions from chunks.
+
+        Here special care is taken to respect the broken summations in the
+        result.
+        """
+
+        n_chunks = len(chunks)
+
+        for chunks_part in multiset_partitions(n_chunks, m=2):
+            factors_part = tuple(set(
+                factor_i for chunk_i in chunk_part_i
+                for factor_i in chunks[chunk_i]
+            ) for chunk_part_i in chunks_part)
+
+            for i, v in enumerate(kept):
+                if v:
+                    continue
+
+                # Now we have broken sum.
+                involve = sum_involve[i]
+                if any(part.isdisjoint(involve) for part in factors_part):
+                    break
+            else:
+                yield factors_part
+
+    def _form_part(self, prod_node, factor_idxes, sum_involve, factor_infos):
+        """Form a partition for the given factors."""
+
+        involved_exts, involved_sums = [
+            set.union(*[i[label] for i in factor_infos])
+            for label in [0, 1]
+            ]
+
+        factors = [prod_node.factors[i] for i in factor_idxes]
+        exts = [
+            v
+            for i, v in enumerate(prod_node.exts)
+            if i in involved_exts
+            ]
+        sums = []
+
+        for i, v in enumerate(prod_node.sums):
+            if sum_involve[i].issubset(involved_sums):
+                sums.append(v)
+            else:
+                exts.append(v)
+            continue
+
+        ref, node = self._form_prod_interm(exts, sums, factors)
+        return _Part(ref=ref, node=node)
+
+    @staticmethod
+    def _get_prod_final_cost(exts_total_size, sums) -> Expr:
+        """Compute the final cost for a pairwise product evaluation."""
+
+        if len(sums) == 0:
+            return exts_total_size
+        else:
+            return _TWO * exts_total_size * prod_(i.size for _, i in sums)
+
+    def _form_prod_eval(
+            self, prod_node: _Prod, parts: typing.Tuple[_Part, ...]
+    ):
+        """Form an evaluation for a product node."""
+
+        assert len(parts) == 2
+
+        coeff = _UNITY
+        factors = []
+        for i in parts:
+            curr_coeff, curr_ref = self._parse_interm_ref(i.ref)
+            coeff *= curr_coeff
+            factors.append(curr_ref)
+            continue
+
+        return _Prod(prod_node.exts, prod_node.sums, coeff, factors)
 
 
 #
@@ -823,6 +1041,7 @@ class _Optimizer:
 
 _UNITY = Integer(1)
 _NEG_UNITY = Integer(-1)
+_TWO = Integer(2)
 
 _EXT = 0
 _SUMMED_EXT = 1
@@ -866,6 +1085,11 @@ _CollectInfos = typing.Dict[int, _CollectInfo]
 
 _Collectibles = typing.Dict[_Collectible, _CollectInfos]
 
+_Part = collections.namedtuple('_Part', [
+    'ref',
+    'node'
+])
+
 
 #
 # Core evaluation DAG nodes.
@@ -882,6 +1106,7 @@ class _EvalNode:
 
         self.exts = exts
         self.evals = []  # type: typing.List[_EvalNode]
+        self.total_cost = None
         self.n_refs = 0
 
 
