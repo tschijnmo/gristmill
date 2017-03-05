@@ -270,7 +270,10 @@ class _Optimizer:
 
     @staticmethod
     def _write_in_orig_ranges(sums):
-        """Write the summations in terms of undecorated bare ranges."""
+        """Write the summations in terms of undecorated bare ranges.
+
+        The labels in the ranges are assumed to be decorated.
+        """
         return tuple(
             (i, j.replace_label(j.label[-1])) for i, j in sums
         )
@@ -376,7 +379,7 @@ class _Optimizer:
             dumms=self._dumms, excl=self._excl
         )
 
-        canon_new_sums = canon_sums[:len(new_sums)]
+        canon_new_sums = canon_sums[:n_new]
         return dumm_reset.map(lambda x: x, sums=tuple(itertools.chain(
             (
                 (i[0], j[1])
@@ -389,7 +392,7 @@ class _Optimizer:
         """Get the coefficient and pure intermediate reference in a reference.
 
         Despite being SymPy expressions, actually intermediate reference, for
-        instance in a term in an summation node is very rigid.
+        instance in a term in an summation node, is very rigid.
         """
 
         if isinstance(sum_term, Mul):
