@@ -477,10 +477,6 @@ class _Optimizer:
 
         if len(terms) == 0:
             assert False  # Should be removed by grist preparation.
-        elif len(terms) == 1:
-            term = terms[0]
-            factors, coeff = term.amp_factors
-            return _Prod(exts, term.sums, coeff, factors)
         else:
             return self._form_sum_from_terms(exts, terms)
 
