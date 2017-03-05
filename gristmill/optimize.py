@@ -112,9 +112,9 @@ class _Optimizer:
 
         self._grist = []
         self._drudge = None
-        self._range_var = None
+        self._range_var = None  # The only variable for range sizes.
         self._excl = set()
-        self._input_ranges = {}
+        self._input_ranges = {}  # Substituted range to original range.
 
         # Form pre-grist, basically everything is set except the dummy variables
         # for external indices and summations.
@@ -155,7 +155,9 @@ class _Optimizer:
         terms = []
         for term in comput.local_terms:
             if not term.is_scalar:
-                raise ValueError('Invalid term', term, 'expecting scalar')
+                raise ValueError(
+                    'Invalid term to optimize', term, 'expecting scalar'
+                )
             sums = self._proc_sums(term.sums, substs)
             amp = term.amp
 
@@ -171,7 +173,7 @@ class _Optimizer:
         """Process a summation list.
 
         The ranges will be replaced with substitution sizes.  Relevant members
-        of the group will also be updated.  User error will also be reported.
+        of the object will also be updated.  User error will also be reported.
         """
 
         res = []
@@ -183,7 +185,7 @@ class _Optimizer:
                     'expecting explicit bound'
                 )
             lower, upper = [
-                self._check_range_var(range_, i.xreplace(substs))
+                self._check_range_var(i.xreplace(substs), range_)
                 for i in [range_.lower, range_.upper]
                 ]
 
@@ -203,7 +205,7 @@ class _Optimizer:
 
         return tuple(res)
 
-    def _check_range_var(self, range_, expr) -> Expr:
+    def _check_range_var(self, expr, range_) -> Expr:
         """Check size expression for valid symbol presence."""
 
         range_vars = expr.atoms(Symbol)
