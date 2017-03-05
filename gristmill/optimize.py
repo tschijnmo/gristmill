@@ -481,14 +481,21 @@ class _Optimizer:
             return self._form_sum_from_terms(exts, terms)
 
     def _optimize(self, node):
-        """Optimize the evaluation of the given node."""
+        """Optimize the evaluation of the given node.
+
+        The evaluation methods will be filled with, possibly multiple, method of
+        evaluations.
+        """
+
+        if len(node.evals) > 0:
+            return node
 
         if isinstance(node, _Sum):
             return self._optimize_sum(node)
         elif isinstance(node, _Prod):
             return self._optimize_prod(node)
         else:
-            raise TypeError('Invalid node to optimize', node)
+            assert False
 
     def _form_prod_interm(self, exts, sums, factors) -> Expr:
         """Form a product intermediate.
