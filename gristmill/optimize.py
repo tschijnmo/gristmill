@@ -251,10 +251,135 @@ class _Optimizer:
 
         return _Grain(exts=exts, terms=terms)
 
-    def _linearize(self, optimized) -> typing.List[TensorDef]:
+    def _linearize(
+            self, optimized: typing.Sequence[_EvalNode]
+    ) -> typing.List[TensorDef]:
         """Linearize optimized forms of the evaluation.
         """
-        pass
+
+        for node in optimized:
+            self._set_dep_ref(node)
+            continue
+
+        res = []
+        for node in optimized:
+            self._linearize_node(node, res)
+            continue
+        res.reverse()
+
+        return res
+
+    def _set_dep_ref(self, node: _EvalNode):
+        """Set dependencies of reference from an evaluation node.
+
+        It is always the first evaluation that is going to be used, all rest
+        will be removed.
+        """
+
+        assert len(node.evals) > 1
+        del node.evals[1:]
+        eval_ = node.evals[0]
+
+        if isinstance(eval_, _Prod):
+            refs = [i for i in eval_.factors if self._is_interm_ref(i)]
+        elif isinstance(eval_, _Sum):
+            refs = eval_.sum_terms
+        else:
+            assert False
+
+        for i in refs:
+            _, ref = self._parse_interm_ref(i)
+            dep = ref.base if isinstance(ref, Indexed) else ref
+            eval_.deps.add(dep)
+            dep_node = self._interms[dep]
+            dep_node.n_ref += 1
+            continue
+
+        return
+
+    def _linearize_node(self, node: _EvalNode, res: list):
+        """Linearize evaluation rooted in the given node into the result.
+        """
+
+        queue = collections.deque()
+        queue.append(node)
+        while len(queue) != 0:
+            curr = queue.popleft()
+            queue.extend(curr.deps)
+            res.append(self._form_def(curr))
+            continue
+
+        return
+
+    def _form_def(self, node: _EvalNode) -> TensorDef:
+        """Form the final definition of an evaluation node."""
+
+        assert len(node.evals) == 1
+
+        if isinstance(node, _Prod):
+            return self._form_prod_def(node)
+        elif isinstance(node, _Sum):
+            return self._form_sum_def(node)
+        else:
+            assert False
+
+    def _form_prod_def(self, node: _Prod):
+        """Form the final definition of a product evaluation node."""
+
+        exts = node.exts
+        eval_ = node.evals[0]
+        assert isinstance(eval_, _Prod)
+        term = self._form_prod_def_term(eval_)
+        return TensorDef(node.base, *exts, term)
+
+    def _form_prod_def_term(self, eval_: _Prod):
+        """Form the term in the final definition of a product evaluation node.
+        """
+
+        amp = eval_.coeff
+
+        for factor in eval_.factors:
+            if self._is_interm_ref(factor):
+                interm = self._interms[
+                    factor.base if isinstance(factor, Indexed) else factor
+                ]
+                if len(interm.factors) == 1 and len(interm.sums) == 0:
+                    # Inline trivial reference to an input.
+                    content = self._get_def(factor)
+                    assert len(content) == 1
+                    amp *= content[0].amp
+                else:
+                    amp *= factor
+            else:
+                amp *= factor
+        return Term(eval_.sums, amp, ())
+
+    def _form_sum_def(self, node: _Sum) -> TensorDef:
+        """Form the final definition of a sum evaluation node."""
+
+        exts = node.exts
+        terms = []
+
+        eval_ = node.evals[0]
+        assert isinstance(eval_, _Sum)
+
+        for term in eval_.sum_terms:
+            coeff, ref = self._parse_interm_ref(term)
+            term_node = self._interms[
+                ref.base if isinstance(ref, Indexed) else ref
+            ]
+            if term_node.n_refs == 1:
+                # Inline intermediates only used here.
+                terms.append(self._form_prod_def_term(ref))
+            else:
+                terms.append(Term(
+                    (), term, ()
+                ))
+            continue
+
+        return TensorDef(
+            node.base, *exts, self._drudge.create_tensor(terms)
+        )
 
     #
     # Internal support utilities.
@@ -1140,9 +1265,15 @@ class _EvalNode:
         """
 
         self.exts = exts
+
+        # Fields for definition nodes.
         self.evals = []  # type: typing.List[_EvalNode]
         self.total_cost = None
+        self.base = None
         self.n_refs = 0
+
+        # Fields for evaluations nodes.
+        self.deps = set()
 
 
 class _Sum(_EvalNode):
