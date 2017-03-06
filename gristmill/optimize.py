@@ -606,6 +606,7 @@ class _Optimizer:
             for idx in new_term_idxes:
                 term = terms[idx]
 
+                # Loop over collectibles the new term can offer.
                 for i, j in self._find_collectibles(exts, term):
                     infos = collectibles[i]
                     if idx not in infos:
@@ -633,7 +634,10 @@ class _Optimizer:
         return
 
     def _find_collectibles(self, exts, term):
-        """Find the collectibles from a given term."""
+        """Find the collectibles from a given term.
+
+        Collectibles are going to be yielded as key and infos pairs.
+        """
 
         coeff, factor = self._parse_interm_ref(term)
 
@@ -645,13 +649,15 @@ class _Optimizer:
             # This could give some minor saving.
             pass
 
-        prod_node = self._interms[factor.base]
+        prod_node = self._interms[
+            factor.base if isinstance(factor, Indexed) else factor
+        ]
         if len(prod_node.factors) > 2:
             # Single-factor does not offer collectible,
             # collectible * (something + 1) is so rare in real applications.
 
             if len(prod_node.evals) == 0:
-                self._optimize_prod(prod_node)
+                self._optimize(prod_node)
 
             for eval_i in prod_node.evals:
                 res.extend(self._find_collectibles_eval(
@@ -704,14 +710,14 @@ class _Optimizer:
         involved_sums = []
         for i, j in sums:
             # Sums not involved in both should be pushed in.
-            assert (i in involved_symbs)
+            assert i in involved_symbs
             involved_sums.append((
                 i, j.replace_label((_SUMMED_EXT, j.label))
             ))
             continue
 
         coeff, key, all_sums = self._canon_terms(
-            involved_exts + involved_sums, terms
+            tuple(itertools.chain(involved_exts, involved_sums)), terms
         )
         ranges = _Ranges(
             involved_exts=self._write_in_orig_ranges(involved_exts),
@@ -734,6 +740,7 @@ class _Optimizer:
 
         try:
             return max(with_saving, key=lambda x: get_cost_key(
+                # Any range is sufficient for the determination of savings.
                 self._get_collectible_saving(next(x[1].values()).ranges)
             ))
         except StopIteration:
@@ -769,11 +776,12 @@ class _Optimizer:
             coeff *= eval_.coeff * v.coeff  # Three levels of coefficients.
 
             residue_terms.extend(
-                i.map(lambda x: coeff * x.xreplace(v.substs))
-                for i in self._get_def(eval_.factors[0 if v.lr == 1 else 1])
+                i.map(lambda x: coeff * x) for i in self._get_def(
+                    eval_.factors[0 if v.lr == 1 else 1].xreplace(v.substs)
+                )
             )
 
-            curr_exts = list(sorted(itertools.chain(
+            curr_exts = tuple(sorted(itertools.chain(
                 v.ranges.sums, v.ranges.other_exts
             )))
             if residue_exts is None:
