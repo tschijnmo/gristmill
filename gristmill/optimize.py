@@ -822,17 +822,18 @@ class _Optimizer:
 
     def _optimize_prod(self, prod_node):
         """Optimize the product evaluation node.
-
-        After this method is called on a product node, the evaluations and the
-        cost are guaranteed to be set.
         """
 
-        if len(prod_node.evals) > 0:
-            return
+        assert len(prod_node.evals) == 0
+        n_factors = len(prod_node.factors)
 
-        if len(prod_node.factors) < 3:
+        if n_factors < 2:
+            assert n_factors == 1
             prod_node.evals.append(prod_node)
-            # TODO: Add cost setting.
+            prod_node.total_cost = self._get_prod_final_cost(
+                prod_(i.size for _, i in prod_node.exts),
+                prod_node.sums
+            )
             return
 
         evals = prod_node.evals
