@@ -529,8 +529,6 @@ class _Optimizer:
             interm = _Prod(
                 canon_exts, canon_sums, canon_coeff, canon_factors
             )
-            interm.canon = key
-            interm.base = base
             self._interms[base] = interm
 
         return coeff * base[tuple(
@@ -541,10 +539,10 @@ class _Optimizer:
         """Form a sum intermediate.
         """
 
-        decored_exts = [
+        decored_exts = tuple(
             (i, j.replace_label((_EXT, j.label)))
             for i, j in exts
-            ]
+        )
         n_exts = len(decored_exts)
 
         coeff, canon_terms, canon_exts = self._canon_terms(decored_exts, terms)
@@ -1137,4 +1135,3 @@ class _Prod(_EvalNode):
         self.sums = sums
         self.coeff = coeff
         self.factors = factors
-        self.canon = None
