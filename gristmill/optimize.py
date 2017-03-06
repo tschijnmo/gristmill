@@ -837,11 +837,11 @@ class _Optimizer:
             return
 
         evals = prod_node.evals
-        curr_total = None
+        optimal_cost = None
         for final_cost, parts_gen in self._gen_factor_parts(prod_node):
             if_break = (
-                curr_total is not None
-                and get_cost_key(final_cost) > curr_total[0]
+                optimal_cost is not None
+                and get_cost_key(final_cost) > optimal_cost[0]
             )
             if if_break:
                 break
@@ -849,9 +849,10 @@ class _Optimizer:
 
             for parts in parts_gen:
 
-                # Recurse.
+                # Recurse, two parts.
+                assert len(parts) == 2
                 for i in parts:
-                    self._optimize_prod(i.node)
+                    self._optimize(i.node)
                     continue
 
                 total_cost = (
@@ -860,16 +861,16 @@ class _Optimizer:
                     + parts[1].node.total_cost
                 )
                 total_cost_key = get_cost_key(total_cost)
-                if curr_total is None or curr_total[0] > total_cost_key:
-                    curr_total = (total_cost_key, total_cost)
+                if optimal_cost is None or optimal_cost[0] > total_cost_key:
+                    optimal_cost = (total_cost_key, total_cost)
                     evals.clear()
                     evals.append(self._form_prod_eval(prod_node, parts))
-                elif curr_total[0] == total_cost_key:
+                elif optimal_cost[0] == total_cost_key:
                     evals.append(self._form_prod_eval(prod_node, parts))
 
                 continue
 
-        prod_node.total_cost = curr_total[1]
+        prod_node.total_cost = optimal_cost[1]
         return
 
     def _gen_factor_parts(self, prod_node: _Prod):
@@ -879,8 +880,9 @@ class _Optimizer:
         exts = prod_node.exts
         exts_total_size = prod_(i.size for _, i in exts)
 
-        factor_atoms = [i.atoms(Symbol) for i in prod_node.factors]
-
+        factor_atoms = [
+            i.atoms(Symbol) for i in prod_node.factors
+            ]
         sum_involve = [
             {j for j, v in enumerate(factor_atoms) if i in v}
             for i, _ in prod_node.sums
@@ -890,12 +892,17 @@ class _Optimizer:
             {v[0]: j for j, v in enumerate(i)}
             for i in [prod_node.exts, prod_node.sums]
         )
+        # Indices of external and internal dummies involved by each factors.
         factor_infos = [
-            tuple([i[j] for j in atoms if j in i] for i in dumm2index)
+            tuple(
+                list(sorted(i[j] for j in atoms if j in i))
+                for i in dumm2index
+            )
             for atoms in factor_atoms
             ]
 
-        for kept in self._gen_broken_kept_sums(prod_node.sums):
+        # Actual generation.
+        for kept in self._gen_kept_sums(prod_node.sums):
             final_cost = self._get_prod_final_cost(
                 exts_total_size,
                 [i for i, j in zip(prod_node.sums, kept) if not j]
@@ -906,7 +913,7 @@ class _Optimizer:
             continue
 
     @staticmethod
-    def _gen_broken_kept_sums(sums):
+    def _gen_kept_sums(sums):
         """Generate kept summations in increasing size of broken summations.
 
         The results will be given as boolean array giving if the corresponding
