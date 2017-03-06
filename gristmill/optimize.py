@@ -949,7 +949,12 @@ class _Optimizer:
     def _gen_parts_w_kept_sums(
             self, prod_node: _Prod, kept, sum_involve, factor_infos
     ):
-        """Generate all partitions with given summations kept."""
+        """Generate all partitions with given summations kept.
+
+        First we the factors are divided into chunks indivisible according to
+        the kept summations.  Then their bipartitions which really break the
+        broken sums are generated.
+        """
 
         dsf = DSF(i for i, _ in enumerate(factor_infos))
 
@@ -963,10 +968,13 @@ class _Optimizer:
             return
 
         for part in self._gen_parts_from_chunks(kept, chunks, sum_involve):
+            assert len(part) == 2
             yield tuple(
                 self._form_part(prod_node, i, sum_involve, factor_infos)
                 for i in part
             )
+
+        return
 
     @staticmethod
     def _gen_parts_from_chunks(kept, chunks, sum_involve):
@@ -987,8 +995,7 @@ class _Optimizer:
             for i, v in enumerate(kept):
                 if v:
                     continue
-
-                # Now we have broken sum.
+                # Now we have broken sum, it need to be involved by both parts.
                 involve = sum_involve[i]
                 if any(part.isdisjoint(involve) for part in factors_part):
                     break
@@ -1012,7 +1019,7 @@ class _Optimizer:
         sums = []
 
         for i, v in enumerate(prod_node.sums):
-            if sum_involve[i].issubset(involved_sums):
+            if sum_involve[i] <= factor_idxes:
                 sums.append(v)
             else:
                 exts.append(v)
