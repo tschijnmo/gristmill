@@ -924,23 +924,23 @@ class _Optimizer:
         n_sums = len(sizes)
 
         def get_size(kept):
-            """Get the total broken summation size."""
-            return prod_(i for i, j in zip(sizes, kept) if not j)
+            """Wrap the kept summation with its size."""
+            size = prod_(
+                i for i, j in zip(sizes, kept) if not j
+            )
+            return get_cost_key(size), size, kept
 
-        init = list(range(n_sums))  # Everything is kept.
-        queue = [(get_size(init), init)]
+        init = [True] * n_sums  # Everything is kept.
+        queue = [get_size(init)]
         while len(queue) > 0:
             curr = heapq.heappop(queue)
-            yield curr
-            curr_kept = curr[1]
+            yield curr[1], curr[2]
+            curr_kept = curr[2]
             for i in range(n_sums):
                 if curr_kept[i]:
                     new_kept = list(curr_kept)
                     new_kept[i] = False
-                    heapq.heappush(
-                        queue,
-                        (get_size(new_kept), new_kept)
-                    )
+                    heapq.heappush(queue, get_size(new_kept))
                     continue
                 else:
                     break
