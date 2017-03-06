@@ -838,7 +838,9 @@ class _Optimizer:
 
         evals = prod_node.evals
         optimal_cost = None
-        for final_cost, parts_gen in self._gen_factor_parts(prod_node):
+        for final_cost, broken_sums, parts_gen in self._gen_factor_parts(
+                prod_node
+        ):
             if_break = (
                 optimal_cost is not None
                 and get_cost_key(final_cost) > optimal_cost[0]
@@ -864,9 +866,13 @@ class _Optimizer:
                 if optimal_cost is None or optimal_cost[0] > total_cost_key:
                     optimal_cost = (total_cost_key, total_cost)
                     evals.clear()
-                    evals.append(self._form_prod_eval(prod_node, parts))
+                    evals.append(self._form_prod_eval(
+                        prod_node, broken_sums, parts
+                    ))
                 elif optimal_cost[0] == total_cost_key:
-                    evals.append(self._form_prod_eval(prod_node, parts))
+                    evals.append(self._form_prod_eval(
+                        prod_node, broken_sums, parts
+                    ))
 
                 continue
 
@@ -903,11 +909,11 @@ class _Optimizer:
 
         # Actual generation.
         for kept in self._gen_kept_sums(prod_node.sums):
+            broken_sums = [i for i, j in zip(prod_node.sums, kept) if not j]
             final_cost = self._get_prod_final_cost(
-                exts_total_size,
-                [i for i, j in zip(prod_node.sums, kept) if not j]
+                exts_total_size, broken_sums
             )
-            yield final_cost, self._gen_parts_w_kept_sums(
+            yield final_cost, broken_sums, self._gen_parts_w_kept_sums(
                 prod_node, kept, sum_involve, factor_infos
             )
             continue
@@ -1038,7 +1044,7 @@ class _Optimizer:
             return _TWO * exts_total_size * prod_(i.size for _, i in sums)
 
     def _form_prod_eval(
-            self, prod_node: _Prod, parts: typing.Tuple[_Part, ...]
+            self, prod_node: _Prod, broken_sums, parts: typing.Tuple[_Part, ...]
     ):
         """Form an evaluation for a product node."""
 
@@ -1052,7 +1058,7 @@ class _Optimizer:
             factors.append(curr_ref)
             continue
 
-        return _Prod(prod_node.exts, prod_node.sums, coeff, factors)
+        return _Prod(prod_node.exts, broken_sums, coeff, factors)
 
 
 #
