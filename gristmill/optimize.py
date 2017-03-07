@@ -396,7 +396,7 @@ class _Optimizer:
         will be removed to avoid further complications.
         """
 
-        assert len(node.evals) > 1
+        assert len(node.evals) > 0
         del node.evals[1:]
         eval_ = node.evals[0]
 
@@ -412,7 +412,7 @@ class _Optimizer:
             dep = ref.base if isinstance(ref, Indexed) else ref
             eval_.deps.add(dep)
             dep_node = self._interms[dep]
-            dep_node.n_ref += 1
+            dep_node.n_refs += 1
             continue
 
         return
@@ -761,7 +761,7 @@ class _Optimizer:
             node.sums, node.coeff * prod_(node.factors), ()
         ).reset_dumms(
             self._dumms, excl=self._excl | new_symbs
-        ).map(lambda x: x.xreplace(substs))
+        )[0].map(lambda x: x.xreplace(substs))
 
         return [term]
 
@@ -1047,7 +1047,7 @@ class _Optimizer:
                 # Any range is sufficient for the determination of savings.
                 self._get_collectible_saving(next(x[1].values()).ranges)
             ))
-        except StopIteration:
+        except ValueError:
             return None, None
 
     @staticmethod
