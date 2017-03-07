@@ -315,7 +315,7 @@ class _Optimizer:
 
         return
 
-    def _form_def(self, node: _EvalNode) -> TensorDef:
+    def _form_def(self, node: _EvalNode) -> _Grain:
         """Form the final definition of an evaluation node."""
 
         assert len(node.evals) == 1
@@ -334,7 +334,7 @@ class _Optimizer:
         eval_ = node.evals[0]
         assert isinstance(eval_, _Prod)
         term = self._form_prod_def_term(eval_)
-        return TensorDef(node.base, *exts, term)
+        return _Grain(base=node.base, exts=exts, terms=[term])
 
     def _form_prod_def_term(self, eval_: _Prod):
         """Form the term in the final definition of a product evaluation node.
@@ -358,7 +358,7 @@ class _Optimizer:
                 amp *= factor
         return Term(eval_.sums, amp, ())
 
-    def _form_sum_def(self, node: _Sum) -> TensorDef:
+    def _form_sum_def(self, node: _Sum) -> _Grain:
         """Form the final definition of a sum evaluation node."""
 
         exts = node.exts
@@ -398,9 +398,7 @@ class _Optimizer:
                 ))
             continue
 
-        return TensorDef(
-            node.base, *exts, self._drudge.create_tensor(terms)
-        )
+        return _Grain(base=node.base, exts=exts, terms=terms)
 
     def _is_input(self, node: _Prod):
         """Test if a product node is just a trivial reference to an input."""
