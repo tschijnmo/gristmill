@@ -273,7 +273,7 @@ class _Optimizer:
         """Set dependencies of reference from an evaluation node.
 
         It is always the first evaluation that is going to be used, all rest
-        will be removed.
+        will be removed to avoid further complications.
         """
 
         assert len(node.evals) > 1
@@ -343,7 +343,7 @@ class _Optimizer:
                 interm = self._interms[
                     factor.base if isinstance(factor, Indexed) else factor
                 ]
-                if len(interm.factors) == 1 and len(interm.sums) == 0:
+                if self._is_input(interm):
                     # Inline trivial reference to an input.
                     content = self._get_def(factor)
                     assert len(content) == 1
@@ -368,9 +368,12 @@ class _Optimizer:
             term_node = self._interms[
                 ref.base if isinstance(ref, Indexed) else ref
             ]
-            if term_node.n_refs == 1:
+            if term_node.n_refs == 1 or self._is_input(term_node):
                 # Inline intermediates only used here.
-                terms.append(self._form_prod_def_term(ref))
+                terms.append(
+                    # TODO: make substitution of the external variables.
+                    self._form_prod_def_term(term_node).scale(coeff)
+                )
             else:
                 terms.append(Term(
                     (), term, ()
@@ -379,6 +382,12 @@ class _Optimizer:
 
         return TensorDef(
             node.base, *exts, self._drudge.create_tensor(terms)
+        )
+
+    def _is_input(self, node: _Prod):
+        """Test if a product node is just a trivial reference to an input."""
+        return len(node.sums) == 0 and len(node.factors) == 1 and (
+            not self._is_interm_ref(node.factors[0])
         )
 
     #
@@ -557,6 +566,7 @@ class _Optimizer:
             raise ValueError('Invalid intermediate base', base)
 
         node = self._interms[base]
+
         substs = {}
         new_symbs = set()
 
