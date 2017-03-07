@@ -65,6 +65,122 @@ def optimize(
 # The internal optimization engine
 # --------------------------------
 #
+# Internal small type definitions
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+
+
+#
+# Small type definitions.
+#
+
+
+_Grain = collections.namedtuple('_Grain', [
+    'base',
+    'exts',
+    'terms'
+])
+
+#
+# The information on collecting a collectible.
+#
+# Interpretation, after the substitutions given in ``substs``, the ``lr`` factor
+# in the evaluation ``eval_`` will be turned into ``coeff`` times the actual
+# collectible.
+#
+
+_CollectInfo = collections.namedtuple('_Residue', [
+    'eval_',
+    'lr',
+    'coeff',
+    'substs',
+    'ranges'
+])
+
+_Ranges = collections.namedtuple('_Ranges', [
+    'involved_exts',
+    'sums',
+    'other_exts'
+])
+
+_Collectible = typing.Tuple[Term, ...]
+
+_CollectInfos = typing.Dict[int, _CollectInfo]
+
+_Collectibles = typing.Dict[_Collectible, _CollectInfos]
+
+_Part = collections.namedtuple('_Part', [
+    'ref',
+    'node'
+])
+
+
+#
+# Core evaluation DAG nodes.
+#
+
+
+class _EvalNode:
+    """A node in the evaluation graph.
+    """
+
+    def __init__(self, base, exts):
+        """Initialize the evaluation node.
+        """
+
+        self.base = base
+        self.exts = exts
+
+        # Fields for definition nodes.
+        self.evals = []  # type: typing.List[_EvalNode]
+        self.total_cost = None
+        self.base = None
+        self.n_refs = 0
+
+        # Fields for evaluations nodes.
+        self.deps = set()
+
+    def get_substs(self, indices):
+        """Get the substitutions and new symbols for indexing the node.
+        """
+
+        substs = {}
+        new_symbs = set()
+
+        assert len(indices) == len(self.exts)
+        for i, j in zip(indices, self.exts):
+            substs[j[0]] = i
+            new_symbs |= i.atoms(Symbol)
+            continue
+
+        return substs, new_symbs
+
+
+class _Sum(_EvalNode):
+    """Sum nodes in the evaluation graph."""
+
+    def __init__(self, base, exts, sum_terms):
+        """Initialize the node."""
+        super().__init__(base, exts)
+        self.sum_terms = sum_terms
+
+
+class _Prod(_EvalNode):
+    """Product nodes in the evaluation graph.
+    """
+
+    def __init__(self, base, exts, sums, coeff, factors):
+        """Initialize the node."""
+        super().__init__(base, exts)
+        self.sums = sums
+        self.coeff = coeff
+        self.factors = factors
+
+
+#
+# Core optimizer class
+# ~~~~~~~~~~~~~~~~~~~~
+#
 
 
 class _Optimizer:
@@ -1270,109 +1386,3 @@ _TWO = Integer(2)
 _EXT = 0
 _SUMMED_EXT = 1
 _SUMMED = 2
-
-#
-# Small type definitions.
-#
-
-
-_Grain = collections.namedtuple('_Grain', [
-    'base',
-    'exts',
-    'terms'
-])
-
-#
-# The information on collecting a collectible.
-#
-# Interpretation, after the substitutions given in ``substs``, the ``lr`` factor
-# in the evaluation ``eval_`` will be turned into ``coeff`` times the actual
-# collectible.
-#
-
-_CollectInfo = collections.namedtuple('_Residue', [
-    'eval_',
-    'lr',
-    'coeff',
-    'substs',
-    'ranges'
-])
-
-_Ranges = collections.namedtuple('_Ranges', [
-    'involved_exts',
-    'sums',
-    'other_exts'
-])
-
-_Collectible = typing.Tuple[Term, ...]
-
-_CollectInfos = typing.Dict[int, _CollectInfo]
-
-_Collectibles = typing.Dict[_Collectible, _CollectInfos]
-
-_Part = collections.namedtuple('_Part', [
-    'ref',
-    'node'
-])
-
-
-#
-# Core evaluation DAG nodes.
-#
-
-
-class _EvalNode:
-    """A node in the evaluation graph.
-    """
-
-    def __init__(self, base, exts):
-        """Initialize the evaluation node.
-        """
-
-        self.base = base
-        self.exts = exts
-
-        # Fields for definition nodes.
-        self.evals = []  # type: typing.List[_EvalNode]
-        self.total_cost = None
-        self.base = None
-        self.n_refs = 0
-
-        # Fields for evaluations nodes.
-        self.deps = set()
-
-    def get_substs(self, indices):
-        """Get the substitutions and new symbols for indexing the node.
-        """
-
-        substs = {}
-        new_symbs = set()
-
-        assert len(indices) == len(self.exts)
-        for i, j in zip(indices, self.exts):
-            substs[j[0]] = i
-            new_symbs |= i.atoms(Symbol)
-            continue
-
-        return substs, new_symbs
-
-
-class _Sum(_EvalNode):
-    """Sum nodes in the evaluation graph."""
-
-    def __init__(self, base, exts, sum_terms):
-        """Initialize the node."""
-        super().__init__(base, exts)
-        self.sum_terms = sum_terms
-
-
-class _Prod(_EvalNode):
-    """Product nodes in the evaluation graph.
-    """
-
-    def __init__(self, base, exts, sums, coeff, factors):
-        """Initialize the node."""
-        super().__init__(base, exts)
-        self.sums = sums
-        self.coeff = coeff
-        self.factors = factors
