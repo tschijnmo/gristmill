@@ -365,15 +365,29 @@ class _Optimizer:
 
         for term in eval_.sum_terms:
             coeff, ref = self._parse_interm_ref(term)
+
+            # Sum term are guaranteed to be formed from references to products,
+            # never directly written in terms of input.
             term_node = self._interms[
                 ref.base if isinstance(ref, Indexed) else ref
             ]
+
             if term_node.n_refs == 1 or self._is_input(term_node):
-                # Inline intermediates only used here.
-                terms.append(
-                    # TODO: make substitution of the external variables.
-                    self._form_prod_def_term(term_node).scale(coeff)
-                )
+                # Inline intermediates only used here and simple input
+                # references.
+
+                eval_ = term_node.evals[0]
+                assert isinstance(eval_, _Prod)
+                indices = ref.indices if isinstance(ref, Indexed) else ()
+                term = self._index_prod(eval_, indices)[0]
+                factors, term_coeff = term.amp_factors
+
+                # Switch back to evaluation node for using the facilities for
+                # product nodes.
+                terms.append(self._form_prod_def_term(_Prod(
+                    exts, term.sums, coeff * term_coeff, factors
+                )))
+
             else:
                 terms.append(Term(
                     (), term, ()
