@@ -1212,7 +1212,7 @@ class _Optimizer:
         # Indices of external and internal dummies involved by each factors.
         factor_infos = [
             tuple(
-                list(sorted(i[j] for j in atoms if j in i))
+                set(i[j] for j in atoms if j in i)
                 for i in dumm2index
             )
             for atoms in factor_atoms
