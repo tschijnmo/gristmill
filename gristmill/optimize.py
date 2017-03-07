@@ -799,7 +799,9 @@ class _Optimizer:
         else:
             assert False
 
-    def _form_prod_interm(self, exts, sums, factors) -> Expr:
+    def _form_prod_interm(
+            self, exts, sums, factors
+    ) -> typing.Tuple[Expr, _EvalNode]:
         """Form a product intermediate.
 
         The factors are assumed to be all non-trivial factors needing
@@ -835,9 +837,9 @@ class _Optimizer:
 
         return coeff * base[tuple(
             i for i, _ in canon_exts
-        )]
+        )], self._interms[base]
 
-    def _form_sum_interm(self, exts, terms) -> Expr:
+    def _form_sum_interm(self, exts, terms) -> typing.Tuple[Expr, _EvalNode]:
         """Form a sum intermediate.
         """
 
@@ -872,7 +874,7 @@ class _Optimizer:
 
         return coeff * base[tuple(
             i for i, _ in canon_exts
-        )]
+        )], self._interms[base]
 
     def _form_sum_from_terms(self, base, exts, terms):
         """Form a summation node for given the terms.
@@ -883,7 +885,7 @@ class _Optimizer:
         for term in terms:
             sums = term.sums
             factors, coeff = term.amp_factors
-            interm_ref = self._form_prod_interm(exts, sums, factors)
+            interm_ref, _ = self._form_prod_interm(exts, sums, factors)
             sum_terms.append(interm_ref * coeff)
             continue
 
@@ -1093,7 +1095,7 @@ class _Optimizer:
 
             continue
 
-        new_ref = self._form_sum_interm(residue_exts, residue_terms)
+        new_ref, _ = self._form_sum_interm(residue_exts, residue_terms)
 
         for k, v in collect_infos.items():
             if k == new_term_idx:
