@@ -7,10 +7,10 @@ import typing
 import warnings
 
 from drudge import TensorDef, prod_, Term, Range
-from sympy import Integer, Symbol, Expr, IndexedBase, Mul, Indexed
+from sympy import Integer, Symbol, Expr, IndexedBase, Mul, Indexed, sympify
 from sympy.utilities.iterables import multiset_partitions
 
-from .utils import get_cost_key, add_costs, DSF
+from .utils import get_cost_key, add_costs, get_total_size, DSF
 
 
 #
@@ -1052,9 +1052,9 @@ class _Optimizer:
     def _get_collectible_saving(ranges: _Ranges) -> Expr:
         """Get the saving factor for a collectible."""
 
-        other_size = prod_(i.size for _, i in ranges.other_exts)
-        sum_size = prod_(i.size for _, i in ranges.sums)
-        ext_size = prod_(i.size for _, i in ranges.involved_exts)
+        other_size = get_total_size(ranges.other_exts)
+        sum_size = get_total_size(ranges.sums)
+        ext_size = get_total_size(ranges.involved_exts)
 
         return other_size * add_costs(
             2 * sum_size * ext_size, ext_size, -sum_size
@@ -1142,7 +1142,7 @@ class _Optimizer:
             assert n_factors == 1
             prod_node.evals.append(prod_node)
             prod_node.total_cost = self._get_prod_final_cost(
-                prod_(i.size for _, i in prod_node.exts),
+                get_total_size(prod_node.exts),
                 prod_node.sums
             )
             return
@@ -1195,7 +1195,7 @@ class _Optimizer:
 
         # Compute things invariant to different summations for performance.
         exts = prod_node.exts
-        exts_total_size = prod_(i.size for _, i in exts)
+        exts_total_size = get_total_size(exts)
 
         factor_atoms = [
             i.atoms(Symbol) for i in prod_node.factors
@@ -1242,9 +1242,9 @@ class _Optimizer:
 
         def get_size(kept):
             """Wrap the kept summation with its size."""
-            size = prod_(
+            size = sympify(prod_(
                 i for i, j in zip(sizes, kept) if not j
-            )
+            ))
             return get_cost_key(size), size, kept
 
         init = [True] * n_sums  # Everything is kept.
@@ -1352,7 +1352,7 @@ class _Optimizer:
         if len(sums) == 0:
             return exts_total_size
         else:
-            return _TWO * exts_total_size * prod_(i.size for _, i in sums)
+            return _TWO * exts_total_size * get_total_size(sums)
 
     def _form_prod_eval(
             self, prod_node: _Prod, broken_sums, parts: typing.Tuple[_Part, ...]

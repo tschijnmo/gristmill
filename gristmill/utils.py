@@ -2,7 +2,8 @@
 
 import collections
 
-from sympy import Expr, Symbol, Poly
+from drudge import prod_
+from sympy import Expr, Symbol, Poly, Integer
 
 
 #
@@ -41,6 +42,17 @@ def add_costs(*args):
 
     res = sum(i if abs(i) != 1 else 0 for i in args)
     return res if res != 0 else 1
+
+
+def get_total_size(sums) -> Expr:
+    """Get the total size of a summation list."""
+    size = prod_(i.size for _, i in sums)
+    if isinstance(size, Expr):
+        return size
+    elif isinstance(size, int):
+        return Integer(size)
+    else:
+        raise TypeError('Invalid total size', size, 'from sums', sums)
 
 
 #
