@@ -271,7 +271,7 @@ class _Optimizer:
             continue
         res.reverse()
 
-        return res
+        return self._finalize(res)
 
     def _set_dep_ref(self, node: _EvalNode):
         """Set dependencies of reference from an evaluation node.
@@ -405,6 +405,38 @@ class _Optimizer:
         return len(node.sums) == 0 and len(node.factors) == 1 and (
             not self._is_interm_ref(node.factors[0])
         )
+
+    def _finalize(
+            self, computs: typing.Iterable[_Grain]
+    ) -> typing.List[TensorDef]:
+        """Finalize the linearization result.
+
+        Things will be cast to drudge tensor definitions, with intermediates
+        holding names formed from the format given by user.
+        """
+
+        next_idx = 0
+        substs = {}
+
+        res = []
+        for comput in computs:
+            base = comput.base
+            exts = comput.exts
+            terms = [i.map(lambda x: x.xreplace(substs)) for i in comput.terms]
+
+            if base in self._interms:
+                final_base = type(base)(self._interm_fmt.format(next_idx))
+                next_idx += 1
+                substs[base] = final_base
+            else:
+                final_base = base
+
+            res.append(TensorDef(
+                final_base, exts, self._drudge.create_tensor(terms)
+            ))
+            continue
+
+        return res
 
     #
     # Internal support utilities.
