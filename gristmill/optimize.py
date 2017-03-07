@@ -136,9 +136,6 @@ class _EvalNode:
         self.total_cost = None
         self.n_refs = 0
 
-        # Fields for evaluations nodes.
-        self.deps = set()
-
     def get_substs(self, indices):
         """Get the substitutions and new symbols for indexing the node.
         """
@@ -377,7 +374,7 @@ class _Optimizer:
         """
 
         for node in optimized:
-            self._set_dep_ref(node)
+            self._set_n_refs(node)
             continue
 
         res = []
@@ -388,8 +385,8 @@ class _Optimizer:
 
         return self._finalize(res)
 
-    def _set_dep_ref(self, node: _EvalNode):
-        """Set dependencies of reference from an evaluation node.
+    def _set_n_refs(self, node: _EvalNode):
+        """Set reference counts from an evaluation node.
 
         It is always the first evaluation that is going to be used, all rest
         will be removed to avoid further complications.
@@ -409,10 +406,9 @@ class _Optimizer:
         for i in refs:
             _, ref = self._parse_interm_ref(i)
             dep = ref.base if isinstance(ref, Indexed) else ref
-            eval_.deps.add(dep)
             dep_node = self._interms[dep]
             dep_node.n_refs += 1
-            self._set_dep_ref(dep_node)
+            self._set_n_refs(dep_node)
             continue
 
         return
