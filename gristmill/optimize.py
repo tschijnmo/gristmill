@@ -1143,7 +1143,7 @@ class _Optimizer:
             prod_node.evals.append(prod_node)
             prod_node.total_cost = self._get_prod_final_cost(
                 get_total_size(prod_node.exts),
-                prod_node.sums
+                get_total_size(prod_node.sums)
             )
             return
 
@@ -1219,10 +1219,10 @@ class _Optimizer:
             ]
 
         # Actual generation.
-        for kept in self._gen_kept_sums(prod_node.sums):
+        for broken_size, kept in self._gen_kept_sums(prod_node.sums):
             broken_sums = [i for i, j in zip(prod_node.sums, kept) if not j]
             final_cost = self._get_prod_final_cost(
-                exts_total_size, broken_sums
+                exts_total_size, broken_size
             )
             yield final_cost, broken_sums, self._gen_parts_w_kept_sums(
                 prod_node, kept, sum_involve, factor_infos
@@ -1346,13 +1346,13 @@ class _Optimizer:
         return _Part(ref=ref, node=node)
 
     @staticmethod
-    def _get_prod_final_cost(exts_total_size, sums) -> Expr:
+    def _get_prod_final_cost(exts_total_size, sums_total_size) -> Expr:
         """Compute the final cost for a pairwise product evaluation."""
 
-        if len(sums) == 0:
+        if sums_total_size == 1:
             return exts_total_size
         else:
-            return _TWO * exts_total_size * get_total_size(sums)
+            return _TWO * exts_total_size * sums_total_size
 
     def _form_prod_eval(
             self, prod_node: _Prod, broken_sums, parts: typing.Tuple[_Part, ...]
