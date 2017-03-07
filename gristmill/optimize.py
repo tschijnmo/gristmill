@@ -389,7 +389,7 @@ class _Optimizer:
                 # Switch back to evaluation node for using the facilities for
                 # product nodes.
                 terms.append(self._form_prod_def_term(_Prod(
-                    exts, term.sums, coeff * term_coeff, factors
+                    term_node.base, exts, term.sums, coeff * term_coeff, factors
                 )))
 
             else:
@@ -664,7 +664,7 @@ class _Optimizer:
         if len(terms) == 0:
             assert False  # Should be removed by grist preparation.
         else:
-            return self._form_sum_from_terms(exts, terms)
+            return self._form_sum_from_terms(grain.base, exts, terms)
 
     def _optimize(self, node):
         """Optimize the evaluation of the given node.
@@ -713,7 +713,7 @@ class _Optimizer:
             canon_sums = key_term.sums[n_exts:]
             canon_factors, canon_coeff = key_term.amp_factors
             interm = _Prod(
-                canon_exts, canon_sums, canon_coeff, canon_factors
+                base, canon_exts, canon_sums, canon_coeff, canon_factors
             )
             self._interms[base] = interm
 
@@ -751,14 +751,14 @@ class _Optimizer:
                 ))
                 continue
 
-            node = self._form_sum_from_terms(node_exts, node_terms)
+            node = self._form_sum_from_terms(base, node_exts, node_terms)
             self._interms[base] = node
 
         return coeff * base[tuple(
             i for i, _ in canon_exts
         )]
 
-    def _form_sum_from_terms(self, exts, terms):
+    def _form_sum_from_terms(self, base, exts, terms):
         """Form a summation node for given the terms.
 
         No processing is done in this method.
@@ -771,7 +771,7 @@ class _Optimizer:
             sum_terms.append(interm_ref * coeff)
             continue
 
-        return _Sum(exts, sum_terms)
+        return _Sum(base, exts, sum_terms)
 
     #
     # Sum optimization.
@@ -814,9 +814,9 @@ class _Optimizer:
             continue
         # End Main loop.
 
-        sum_node.evals = [
-            _Sum(sum_node.exts, [i for i in terms if i is not None])
-        ]
+        sum_node.evals = [_Sum(
+            sum_node.base, sum_node.exts, [i for i in terms if i is not None]
+        )]
         return
 
     def _find_collectibles(self, exts, term):
@@ -1000,12 +1000,13 @@ class _Optimizer:
         _, orig_node = self._parse_interm_ref(term)
         orig_exts = orig_node.exts
 
-        new_node = _Prod(orig_exts, orig_node.sums, coeff, [
+        base = self._get_next_internal(len(orig_exts) == 0)
+
+        new_node = _Prod(base, orig_exts, orig_node.sums, coeff, [
             collected_factor, interm
         ])
         new_node.evals = [new_node]
 
-        base = self._get_next_internal(len(orig_exts) == 0)
         self._interms[base] = new_node
 
         return base[tuple(i for i, _ in orig_exts)]
@@ -1252,7 +1253,9 @@ class _Optimizer:
             factors.append(curr_ref)
             continue
 
-        return _Prod(prod_node.exts, broken_sums, coeff, factors)
+        return _Prod(
+            prod_node.base, prod_node.exts, broken_sums, coeff, factors
+        )
 
 
 #
@@ -1322,10 +1325,11 @@ class _EvalNode:
     """A node in the evaluation graph.
     """
 
-    def __init__(self, exts):
+    def __init__(self, base, exts):
         """Initialize the evaluation node.
         """
 
+        self.base = base
         self.exts = exts
 
         # Fields for definition nodes.
@@ -1356,9 +1360,9 @@ class _EvalNode:
 class _Sum(_EvalNode):
     """Sum nodes in the evaluation graph."""
 
-    def __init__(self, exts, sum_terms):
+    def __init__(self, base, exts, sum_terms):
         """Initialize the node."""
-        super().__init__(exts)
+        super().__init__(base, exts)
         self.sum_terms = sum_terms
 
 
@@ -1366,9 +1370,9 @@ class _Prod(_EvalNode):
     """Product nodes in the evaluation graph.
     """
 
-    def __init__(self, exts, sums, coeff, factors):
+    def __init__(self, base, exts, sums, coeff, factors):
         """Initialize the node."""
-        super().__init__(exts)
+        super().__init__(base, exts)
         self.sums = sums
         self.coeff = coeff
         self.factors = factors
