@@ -1324,7 +1324,7 @@ class _Optimizer:
         """Form a partition for the given factors."""
 
         involved_exts, involved_sums = [
-            set.union(*[i[label] for i in factor_infos])
+            set.union(*[factor_infos[i][label] for i in factor_idxes])
             for label in [0, 1]
             ]
 
@@ -1337,7 +1337,9 @@ class _Optimizer:
         sums = []
 
         for i, v in enumerate(prod_node.sums):
-            if sum_involve[i] <= factor_idxes:
+            if sum_involve[i].isdisjoint(factor_idxes):
+                continue
+            elif sum_involve[i] <= factor_idxes:
                 sums.append(v)
             else:
                 exts.append(v)
