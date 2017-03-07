@@ -269,7 +269,7 @@ class _Optimizer:
 
         # Terms processing.
         terms = []
-        for term in comput.local_terms:
+        for term in comput.rhs_terms:
             if not term.is_scalar:
                 raise ValueError(
                     'Invalid term to optimize', term, 'expecting scalar'
@@ -646,7 +646,7 @@ class _Optimizer:
             continue
 
         return canon_coeff, tuple(
-            sorted(res_terms, key=lambda x: x.sort_key())
+            sorted(res_terms, key=lambda x: x.sort_key)
         ), canon_new_sum
 
     def _canon_term(self, new_sums, term, fix_new=False):
