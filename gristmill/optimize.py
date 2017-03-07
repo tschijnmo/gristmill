@@ -558,7 +558,7 @@ class _Optimizer:
             indices = interm_ref.indices
         elif isinstance(interm_ref, Symbol):
             base = interm_ref
-            indices = None
+            indices = ()
         else:
             raise TypeError('Invalid intermediate reference', interm_ref)
 
@@ -567,36 +567,39 @@ class _Optimizer:
 
         node = self._interms[base]
 
-        substs = {}
-        new_symbs = set()
-
-        assert len(indices) == len(node.exts)
-        for i, j in zip(indices, node.exts):
-            substs[j[0]] = i
-            new_symbs |= i.atoms(Symbol)
-            continue
-
-        res = []
-
-        if isinstance(node, _Prod):
-
-            # TODO: Add handling of sum intermediate reference in factors.
-            term = Term(
-                node.sums, node.coeff * prod_(node.factors), ()
-            ).reset_dumms(
-                self._dumms, excl=self._excl | new_symbs
-            ).map(lambda x: x.xreplace(substs))
-            res.append(term)
-
-        elif isinstance(node, _Sum):
-            for i in node.sum_terms:
-                coeff, ref = self._parse_interm_ref(i.xreplace(substs))
-                term = self._get_def(ref)[0].scale(coeff)
-                res.append(term)
+        if isinstance(node, _Sum):
+            return self._index_sum(node, indices)
+        elif isinstance(node, _Prod):
+            return self._index_prod(node, indices)
         else:
             assert False
 
+    def _index_sum(self, node: _Sum, indices) -> typing.List[Term]:
+        """Substitute the external indices in the sum node"""
+
+        substs, _ = node.get_substs(indices)
+
+        res = []
+        for i in node.sum_terms:
+            coeff, ref = self._parse_interm_ref(i.xreplace(substs))
+            term = self._get_def(ref)[0].scale(coeff)
+            res.append(term)
+
         return res
+
+    def _index_prod(self, node: _Prod, indices) -> typing.List[Term]:
+        """Substitute the external indices in the evaluation node."""
+
+        substs, new_symbs = node.get_substs(indices)
+
+        # TODO: Add handling of sum intermediate reference in factors.
+        term = Term(
+            node.sums, node.coeff * prod_(node.factors), ()
+        ).reset_dumms(
+            self._dumms, excl=self._excl | new_symbs
+        ).map(lambda x: x.xreplace(substs))
+
+        return [term]
 
     #
     # General optimization.
@@ -1284,6 +1287,21 @@ class _EvalNode:
 
         # Fields for evaluations nodes.
         self.deps = set()
+
+    def get_substs(self, indices):
+        """Get the substitutions and new symbols for indexing the node.
+        """
+
+        substs = {}
+        new_symbs = set()
+
+        assert len(indices) == len(self.exts)
+        for i, j in zip(indices, self.exts):
+            substs[j[0]] = i
+            new_symbs |= i.atoms(Symbol)
+            continue
+
+        return substs, new_symbs
 
 
 class _Sum(_EvalNode):
