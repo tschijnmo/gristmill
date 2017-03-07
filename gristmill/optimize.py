@@ -134,7 +134,6 @@ class _EvalNode:
         # Fields for definition nodes.
         self.evals = []  # type: typing.List[_EvalNode]
         self.total_cost = None
-        self.base = None
         self.n_refs = 0
 
         # Fields for evaluations nodes.
@@ -548,7 +547,7 @@ class _Optimizer:
                 final_base = base
 
             res.append(TensorDef(
-                final_base, exts, self._drudge.create_tensor(terms)
+                final_base, *exts, self._drudge.create_tensor(terms)
             ))
             continue
 
@@ -662,7 +661,7 @@ class _Optimizer:
                 for i, v in enumerate(new_sums)
             ) if fix_new else new_sums,
             (
-                (i, j.replace_label((_SUMMED, j)))
+                (i, j.replace_label((_SUMMED, j.label)))
                 for i, j in term.sums
             )
         )), term.amp, ())
