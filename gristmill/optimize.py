@@ -412,6 +412,7 @@ class _Optimizer:
             eval_.deps.add(dep)
             dep_node = self._interms[dep]
             dep_node.n_refs += 1
+            self._set_dep_ref(dep_node)
             continue
 
         return
@@ -419,18 +420,15 @@ class _Optimizer:
     def _linearize_node(self, node: _EvalNode, res: list):
         """Linearize evaluation rooted in the given node into the result.
         """
-
-        queue = collections.deque()
-        queue.append(node)
-        while len(queue) != 0:
-            curr = queue.popleft()
-            queue.extend(curr.deps)
-            res.append(self._form_def(curr))
+        def_, deps = self._form_def(node)
+        res.append(def_)
+        for i in deps:
+            self._linearize_node(self._interms[i], res)
             continue
 
         return
 
-    def _form_def(self, node: _EvalNode) -> _Grain:
+    def _form_def(self, node: _EvalNode):
         """Form the final definition of an evaluation node."""
 
         assert len(node.evals) == 1
@@ -448,8 +446,8 @@ class _Optimizer:
         exts = node.exts
         eval_ = node.evals[0]
         assert isinstance(eval_, _Prod)
-        term = self._form_prod_def_term(eval_)
-        return _Grain(base=node.base, exts=exts, terms=[term])
+        term, deps = self._form_prod_def_term(eval_)
+        return _Grain(base=node.base, exts=exts, terms=[term]), deps
 
     def _form_prod_def_term(self, eval_: _Prod):
         """Form the term in the final definition of a product evaluation node.
@@ -457,27 +455,30 @@ class _Optimizer:
 
         amp = eval_.coeff
 
+        deps = []
         for factor in eval_.factors:
+
             if self._is_interm_ref(factor):
-                interm = self._interms[
-                    factor.base if isinstance(factor, Indexed) else factor
-                ]
+                dep = factor.base if isinstance(factor, Indexed) else factor
+                interm = self._interms[dep]
                 if self._is_input(interm):
                     # Inline trivial reference to an input.
                     content = self._get_def(factor)
                     assert len(content) == 1
                     amp *= content[0].amp
                 else:
+                    deps.append(dep)
                     amp *= factor
             else:
                 amp *= factor
-        return Term(eval_.sums, amp, ())
+        return Term(eval_.sums, amp, ()), deps
 
-    def _form_sum_def(self, node: _Sum) -> _Grain:
+    def _form_sum_def(self, node: _Sum):
         """Form the final definition of a sum evaluation node."""
 
         exts = node.exts
         terms = []
+        deps = []
 
         eval_ = node.evals[0]
         assert isinstance(eval_, _Sum)
@@ -487,9 +488,8 @@ class _Optimizer:
 
             # Sum term are guaranteed to be formed from references to products,
             # never directly written in terms of input.
-            term_node = self._interms[
-                ref.base if isinstance(ref, Indexed) else ref
-            ]
+            term_base = ref.base if isinstance(ref, Indexed) else ref
+            term_node = self._interms[term_base]
 
             if term_node.n_refs == 1 or self._is_input(term_node):
                 # Inline intermediates only used here and simple input
@@ -503,17 +503,21 @@ class _Optimizer:
 
                 # Switch back to evaluation node for using the facilities for
                 # product nodes.
-                terms.append(self._form_prod_def_term(_Prod(
+                new_term, term_deps = self._form_prod_def_term(_Prod(
                     term_node.base, exts, term.sums, coeff * term_coeff, factors
-                )))
+                ))
+
+                terms.append(new_term)
+                deps.extend(term_deps)
 
             else:
                 terms.append(Term(
                     (), term, ()
                 ))
+                deps.append(term_base)
             continue
 
-        return _Grain(base=node.base, exts=exts, terms=terms)
+        return _Grain(base=node.base, exts=exts, terms=terms), deps
 
     def _is_input(self, node: _Prod):
         """Test if a product node is just a trivial reference to an input."""
