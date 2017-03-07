@@ -103,7 +103,7 @@ class _Optimizer:
         return self._res
 
     #
-    # User input pre-processing and post-processing.
+    # User input pre-processing.
     #
 
     def _prepare_grist(self, computs, substs):
@@ -167,7 +167,7 @@ class _Optimizer:
 
             continue
 
-        return _Grain(exts=exts, terms=terms)
+        return _Grain(base=comput.base, exts=exts, terms=terms)
 
     def _proc_sums(self, sums, substs):
         """Process a summation list.
@@ -249,7 +249,11 @@ class _Optimizer:
             ))
             continue
 
-        return _Grain(exts=exts, terms=terms)
+        return _Grain(base=grain.base, exts=exts, terms=terms)
+
+    #
+    # Optimization result post-processing.
+    #
 
     def _linearize(
             self, optimized: typing.Sequence[_EvalNode]
@@ -1240,6 +1244,7 @@ _SUMMED = 2
 
 
 _Grain = collections.namedtuple('_Grain', [
+    'base',
     'exts',
     'terms'
 ])
