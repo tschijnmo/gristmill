@@ -49,6 +49,8 @@ def optimize(
 
     """
 
+    substs = {} if substs is None else substs
+
     if simplify:
         computs = [i.simplify() for i in computs]
     else:
