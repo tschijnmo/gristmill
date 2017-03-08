@@ -543,8 +543,10 @@ class _Optimizer:
         res = []
         for comput in computs:
             base = comput.base
-            exts = comput.exts
-            terms = [i.map(lambda x: x.xreplace(substs)) for i in comput.terms]
+            exts = tuple((s, self._input_ranges[r]) for s, r in comput.exts)
+            terms = [i.map(lambda x: x.xreplace(substs), sums=tuple(
+                (s, self._input_ranges[r]) for s, r in i.sums
+            )) for i in comput.terms]
 
             if base in self._interms:
                 final_base = type(base)(self._interm_fmt.format(next_idx))
