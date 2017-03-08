@@ -3,7 +3,6 @@ Test of the single-term optimization based on matrix chain product.
 
 """
 
-import pytest
 from drudge import Range, Drudge, TensorDef
 from sympy import symbols, IndexedBase
 
