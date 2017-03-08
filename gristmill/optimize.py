@@ -930,6 +930,12 @@ class _Optimizer:
             new_term_idx = self._collect(terms, infos)
             new_term_idxes.append(new_term_idx)
 
+            del collectibles[to_collect]
+            for i in infos.keys():
+                for j in collectibles.values():
+                    if i in j:
+                        del j[i]
+
             continue
         # End Main loop.
 
