@@ -164,6 +164,12 @@ class _Sum(_EvalNode):
         super().__init__(base, exts)
         self.sum_terms = sum_terms
 
+    def __repr__(self):
+        """Form a representation string for the node."""
+        return '_Sum(base={}, exts={}, sum_terms={})'.format(
+            repr(self.base), repr(self.exts), repr(self.sum_terms)
+        )
+
 
 class _Prod(_EvalNode):
     """Product nodes in the evaluation graph.
@@ -175,6 +181,13 @@ class _Prod(_EvalNode):
         self.sums = sums
         self.coeff = coeff
         self.factors = factors
+
+    def __repr__(self):
+        """Form a representation string for the node."""
+        return '_Prod(base={}, exts={}, coeff={}, factors={})'.format(
+            repr(self.base), repr(self.exts),
+            repr(self.coeff), repr(self.factors)
+        )
 
 
 #
