@@ -957,7 +957,7 @@ class _Optimizer:
         prod_node = self._interms[
             factor.base if isinstance(factor, Indexed) else factor
         ]
-        if len(prod_node.factors) > 2:
+        if len(prod_node.factors) > 1:
             # Single-factor does not offer collectible,
             # collectible * (something + 1) is so rare in real applications.
 
@@ -1046,7 +1046,9 @@ class _Optimizer:
         try:
             return max(with_saving, key=lambda x: get_cost_key(
                 # Any range is sufficient for the determination of savings.
-                self._get_collectible_saving(next(x[1].values()).ranges)
+                self._get_collectible_saving(
+                    next(iter(x[1].values())).ranges
+                )
             ))
         except ValueError:
             return None, None
@@ -1086,9 +1088,10 @@ class _Optimizer:
                 )
             )
 
-            curr_exts = tuple(sorted(itertools.chain(
-                v.ranges.sums, v.ranges.other_exts
-            )))
+            curr_exts = tuple(sorted(
+                itertools.chain(v.ranges.sums, v.ranges.other_exts),
+                key=lambda x: x[0].name
+            ))
             if residue_exts is None:
                 residue_exts = curr_exts
             else:
@@ -1116,7 +1119,10 @@ class _Optimizer:
         interm_coeff, interm = self._parse_interm_ref(new_ref)
         coeff = interm_coeff / info.coeff
 
-        _, orig_node = self._parse_interm_ref(term)
+        _, orig_ref = self._parse_interm_ref(term)
+        orig_node = self._interms[
+            orig_ref.base if isinstance(orig_ref, Indexed) else orig_ref
+        ]
         orig_exts = orig_node.exts
 
         base = self._get_next_internal(len(orig_exts) == 0)
@@ -1190,6 +1196,7 @@ class _Optimizer:
 
                 continue
 
+        assert len(evals) > 0
         prod_node.total_cost = optimal_cost[1]
         return
 
