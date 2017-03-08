@@ -517,11 +517,14 @@ class _Optimizer:
 
         return _Grain(base=node.base, exts=exts, terms=terms), deps
 
-    def _is_input(self, node: _Prod):
+    def _is_input(self, node: _EvalNode):
         """Test if a product node is just a trivial reference to an input."""
-        return len(node.sums) == 0 and len(node.factors) == 1 and (
-            not self._is_interm_ref(node.factors[0])
-        )
+        if isinstance(node, _Prod):
+            return len(node.sums) == 0 and len(node.factors) == 1 and (
+                not self._is_interm_ref(node.factors[0])
+            )
+        else:
+            return False
 
     def _finalize(
             self, computs: typing.Iterable[_Grain]
