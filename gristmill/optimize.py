@@ -875,6 +875,7 @@ class _Optimizer:
 
             node = self._form_sum_from_terms(base, node_exts, node_terms)
             self._interms[base] = node
+            self._optimize(node)
 
         return coeff * base[tuple(
             i for i, _ in canon_exts
