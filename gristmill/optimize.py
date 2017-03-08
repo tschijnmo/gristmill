@@ -7,7 +7,9 @@ import typing
 import warnings
 
 from drudge import TensorDef, prod_, Term, Range
-from sympy import Integer, Symbol, Expr, IndexedBase, Mul, Indexed, sympify
+from sympy import (
+    Integer, Symbol, Expr, IndexedBase, Mul, Indexed, sympify, gcd_list
+)
 from sympy.utilities.iterables import multiset_partitions
 
 from .utils import get_cost_key, add_costs, get_total_size, DSF
@@ -604,14 +606,14 @@ class _Optimizer:
         """
 
         new_dumms = {i for i, _ in new_sums}
-        coeff_cnt = collections.Counter()
+        coeffs = []
 
         candidates = collections.defaultdict(list)
         for term in terms:
             term, canon_sums = self._canon_term(new_sums, term)
 
             factors, coeff = term.amp_factors
-            coeff_cnt[coeff] += 1
+            coeffs.append(coeff)
 
             candidates[
                 term.map(lambda x: prod_(factors))
@@ -641,7 +643,7 @@ class _Optimizer:
         # summations not present in any other term.  This can be hard to check.
 
         canon_new_sum = canon_new_sums.pop()
-        canon_coeff = coeff_cnt.most_common(1)[0][0]
+        canon_coeff = gcd_list(coeffs)
         res_terms = []
         for term in terms:
             term, _ = self._canon_term(canon_new_sum, term, fix_new=True)
