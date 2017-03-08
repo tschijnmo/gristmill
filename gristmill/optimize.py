@@ -826,11 +826,11 @@ class _Optimizer:
             self._interms_canon[key] = base
 
             key_term = key[0]
-            canon_exts = self._write_in_orig_ranges(key_term.sums[:n_exts])
-            canon_sums = key_term.sums[n_exts:]
-            canon_factors, canon_coeff = key_term.amp_factors
+            key_exts = self._write_in_orig_ranges(key_term.sums[:n_exts])
+            key_sums = key_term.sums[n_exts:]
+            key_factors, key_coeff = key_term.amp_factors
             interm = _Prod(
-                base, canon_exts, canon_sums, canon_coeff, canon_factors
+                base, key_exts, key_sums, key_coeff, key_factors
             )
             self._interms[base] = interm
 
