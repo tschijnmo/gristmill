@@ -6,7 +6,7 @@ Test of the single-term optimization based on matrix chain product.
 from drudge import Range, Drudge
 from sympy import symbols, IndexedBase
 
-from gristmill import optimize
+from gristmill import optimize, verify_eval_seq
 
 
 def test_matrix_chain(spark_ctx):
@@ -93,3 +93,6 @@ def test_matrix_chain(spark_ctx):
     targets = [target]
     eval_seq = optimize(targets, substs=substs)
     assert len(eval_seq) == 2
+
+    # Check the correctness.
+    assert verify_eval_seq(eval_seq, targets)
