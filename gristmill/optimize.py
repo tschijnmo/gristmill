@@ -1425,3 +1425,48 @@ _TWO = Integer(2)
 _EXT = 0
 _SUMMED_EXT = 1
 _SUMMED = 2
+
+
+#
+# Optimization result verification
+# --------------------------------
+#
+
+
+def verify_eval_seq(
+        eval_seq: typing.Sequence[TensorDef], res: typing.Sequence[TensorDef]
+) -> bool:
+    """Verify the correctness of an evaluation sequence for the results.
+
+    The last entries of the evaluation sequence should be in one-to-one
+    correspondence with the original form in the ``res`` argument.  This
+    function returns ``True`` when the evaluation sequence is symbolically
+    equivalent to the given raw form.  When a difference is found,
+    ``ValueError`` will be raised with relevant information.
+
+    Note that this function can be very slow for large evaluations.  But it is
+    advised to be used for all optimizations in mission-critical tasks.
+
+    """
+
+    substed_eval_seq = []
+    for eval_ in eval_seq:
+        rhs = eval_.rhs.subst_all(substed_eval_seq)
+        new_def = TensorDef(eval_.base, eval_.exts, rhs)
+        substed_eval_seq.append(new_def)
+        continue
+
+    n_res = len(res)
+    for i, j in zip(substed_eval_seq[-n_res:], res):
+        if i.lhs != j.lhs:
+            raise ValueError(
+                'Unequal left-hand sides', i.lhs, 'with', j.lhs, 'for', j
+            )
+        diff = (i.rhs - j.rhs).simplify()
+        if diff != 0:
+            raise ValueError(
+                'Unequal definition for ', j.lhs, j
+            )
+        continue
+
+    return True
