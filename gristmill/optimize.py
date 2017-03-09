@@ -993,14 +993,28 @@ class _Optimizer:
 
             for eval_i in prod_node.evals:
                 res.extend(self._find_collectibles_eval(
-                    exts, eval_i
+                    exts, factor, eval_i
                 ))
                 continue
 
         return res
 
-    def _find_collectibles_eval(self, exts, eval_: _Prod):
+    def _find_collectibles_eval(self, exts, ref: Expr, eval_: _Prod):
         """Get the collectibles for a particular evaluations of a product."""
+
+        # To begin, we first need to substitute the external indices in for this
+        # particular evaluation inside its ambient.
+        if len(eval_.exts) == 0:
+            assert isinstance(ref, Symbol)
+        else:
+            assert isinstance(ref, Indexed)
+            eval_terms = self._index_prod(eval_, ref.indices)
+            assert len(eval_terms) == 1
+            eval_term = eval_terms[0]
+            factors, coeff = eval_term.amp_factors
+            eval_ = _Prod(
+                _SUBSTED_EVAL, (), eval_term.sums, coeff, factors
+            )
 
         sums = eval_.sums
         factors = eval_.factors
@@ -1425,6 +1439,8 @@ _TWO = Integer(2)
 _EXT = 0
 _SUMMED_EXT = 1
 _SUMMED = 2
+
+_SUBSTED_EVAL = Symbol('gristmillSubstitutedEval')
 
 
 #
