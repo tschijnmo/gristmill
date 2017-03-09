@@ -3,7 +3,7 @@
 from drudge import Range, Drudge
 from sympy import symbols, IndexedBase, Symbol
 
-from gristmill import optimize, verify_eval_seq
+from gristmill import optimize, verify_eval_seq, get_flop_cost
 
 
 def test_matrix_factorization(spark_ctx):
@@ -58,3 +58,9 @@ def test_matrix_factorization(spark_ctx):
 
     # Test the correctness.
     assert verify_eval_seq(res, targets)
+
+    # Test the cost.
+    cost = get_flop_cost(res)
+    leading_cost = get_flop_cost(res, leading=True)
+    assert cost == 2 * n ** 3 + 4 * n ** 2
+    assert leading_cost == 2 * n ** 3
