@@ -93,7 +93,7 @@ _Grain = collections.namedtuple('_Grain', [
 # collectible.
 #
 
-_CollectInfo = collections.namedtuple('_Residue', [
+_CollectInfo = collections.namedtuple('_CollectInfo', [
     'eval_',
     'lr',
     'coeff',
