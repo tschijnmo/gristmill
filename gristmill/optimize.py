@@ -658,7 +658,27 @@ class _Optimizer:
         # summations not present in any other term.  This can be hard to check.
 
         canon_new_sum = canon_new_sums.pop()
-        canon_coeff = gcd_list(coeffs)
+
+        # The GCD computation does not take phase into account.
+        n_neg = 0
+        n_pos = 0
+        for i in coeffs:
+            if i.has(_NEG_UNITY):
+                n_neg += 1
+            else:
+                n_pos += 1
+            continue
+        if n_neg > n_pos:
+            phase = _NEG_UNITY
+        elif n_pos > n_neg:
+            phase = _UNITY
+        else:
+            phase = (
+                _NEG_UNITY if chosen[0].amp_factors[1].has(_NEG_UNITY)
+                else _UNITY
+            )
+        canon_coeff = gcd_list(coeffs) * phase
+
         res_terms = []
         for term in terms:
             term, _ = self._canon_term(canon_new_sum, term, fix_new=True)
