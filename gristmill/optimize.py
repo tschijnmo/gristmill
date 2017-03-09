@@ -698,7 +698,7 @@ class _Optimizer:
             dumms=self._dumms, excl=self._excl
         )
 
-        canon_new_sums = canon_sums[:n_new]
+        canon_new_sums = new_sums if fix_new else canon_sums[:n_new]
         return dumm_reset.map(lambda x: x, sums=tuple(itertools.chain(
             (
                 (i[0], j[1])
