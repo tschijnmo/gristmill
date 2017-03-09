@@ -1074,7 +1074,7 @@ class _Optimizer:
         new_sums = (i for i in all_sums if i[1].label[0] == _SUMMED_EXT)
         return key, ranges, coeff, {
             i[0]: j[0]
-            for i, j in zip(sums, new_sums)
+            for i, j in zip(involved_sums, new_sums)
             }
 
     def _choose_collectible(self, collectibles: _Collectibles):
@@ -1129,10 +1129,9 @@ class _Optimizer:
                 )
             )
 
-            curr_exts = tuple(sorted(
+            curr_exts = tuple(
                 itertools.chain(v.ranges.sums, v.ranges.other_exts),
-                key=lambda x: x[0].name
-            ))
+            )
             if residue_exts is None:
                 residue_exts = curr_exts
             else:
