@@ -1,9 +1,10 @@
 """General utilities."""
 
 import collections
+import typing
 
-from drudge import prod_
-from sympy import Expr, Symbol, Poly, Integer
+from drudge import prod_, TensorDef
+from sympy import Expr, Symbol, Poly, Integer, Mul, poly_from_expr
 
 
 #
@@ -53,6 +54,84 @@ def get_total_size(sums) -> Expr:
         return Integer(size)
     else:
         raise TypeError('Invalid total size', size, 'from sums', sums)
+
+
+#
+# Public cost computation function.
+#
+
+
+def get_flop_cost(eval_seq: typing.Iterable[TensorDef], leading=False):
+    """Get the FLOP cost for the given evaluation sequence.
+
+    This function gives the count of floating-point operations, addition and
+    multiplication, involved by the evaluation sequence.  Note that the cost of
+    copying and initialization are not counted.  And this function is only
+    applicable where the amplitude of the terms are simple products.
+
+    Parameters
+    ----------
+
+    eval_seq
+        The evaluation sequence whose FLOP cost is to be estimated.  It should
+        be given as an iterable of tensor definitions.
+
+    leading
+        If only the cost terms with leading scaling be given.  When multiple
+        symbols are present in the range sizes, terms with the highest total
+        scaling is going to be picked.
+
+    """
+
+    cost = sum(_get_flop_cost(i) for i in eval_seq)
+    return _get_leading(cost) if leading else cost
+
+
+def _get_flop_cost(step):
+    """Get the FLOP cost of a tensor evaluation step."""
+
+    ext_size = get_total_size(step.exts)
+
+    cost = Integer(0)
+    n_terms = 0
+    for term in step.rhs_terms:
+        sum_size = get_total_size(term.sums)
+
+        if isinstance(term.amp, Mul):
+            n_mult = len(term.amp.args) - 1
+        else:
+            n_mult = 0
+
+        if sum_size == 1:
+            n_add = 0
+        else:
+            n_add = 1
+
+        cost = add_costs(cost, (n_add + n_mult) * ext_size * sum_size)
+        n_terms += 1
+        continue
+
+    if n_terms > 1:
+        cost = add_costs(cost, (n_terms - 1) * ext_size)
+
+    return cost
+
+
+def _get_leading(cost):
+    """Get the leading terms in a cost polynomial."""
+
+    symbs = tuple(cost.atoms(Symbol))
+    poly, _ = poly_from_expr(cost, *symbs)
+    terms = poly.terms()
+
+    leading_deg = max(sum(i) for i, _ in terms)
+    leading_cost = sum(
+        coeff * prod_(i ** j for i, j in zip(symbs, degs))
+        for degs, coeff in terms
+        if sum(degs) == leading_deg
+    )
+
+    return leading_cost
 
 
 #
