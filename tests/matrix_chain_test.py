@@ -6,7 +6,7 @@ Test of the single-term optimization based on matrix chain product.
 from drudge import Range, Drudge
 from sympy import symbols, IndexedBase
 
-from gristmill import optimize, verify_eval_seq
+from gristmill import optimize, verify_eval_seq, get_flop_cost
 
 
 def test_matrix_chain(spark_ctx):
@@ -96,3 +96,10 @@ def test_matrix_chain(spark_ctx):
 
     # Check the correctness.
     assert verify_eval_seq(eval_seq, targets)
+
+    # Check the cost.
+    cost = get_flop_cost(eval_seq)
+    leading_cost = get_flop_cost(eval_seq, leading=True)
+    expected_cost = 2 * l * m * n + 2 * m ** 2 * n
+    assert cost == expected_cost
+    assert leading_cost == expected_cost
