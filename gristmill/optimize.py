@@ -569,7 +569,7 @@ class _Optimizer:
                 final_base = base
 
             res.append(TensorDef(
-                final_base, *exts, self._drudge.create_tensor(terms)
+                final_base, exts, self._drudge.create_tensor(terms)
             ))
             continue
 

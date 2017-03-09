@@ -3,7 +3,7 @@ Test of the single-term optimization based on matrix chain product.
 
 """
 
-from drudge import Range, Drudge, TensorDef
+from drudge import Range, Drudge
 from sympy import symbols, IndexedBase
 
 from gristmill import optimize
@@ -84,9 +84,9 @@ def test_matrix_chain(spark_ctx):
     p = dr.names
 
     target_base = IndexedBase('t')
-    target = TensorDef(
-        target_base, (p.a, p.M), (p.b, p.M),
-        dr.einst(x[p.a, p.i] * y[p.i, p.p] * z[p.p, p.b])
+    target = dr.define_einst(
+        target_base[p.a, p.b],
+        x[p.a, p.i] * y[p.i, p.p] * z[p.p, p.b]
     )
 
     # Perform the factorization.

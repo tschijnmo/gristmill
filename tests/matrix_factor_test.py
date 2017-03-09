@@ -1,6 +1,6 @@
 """Test of matrix factorization."""
 
-from drudge import Range, Drudge, TensorDef
+from drudge import Range, Drudge
 from sympy import symbols, IndexedBase, Symbol
 
 from gristmill import optimize
@@ -45,10 +45,11 @@ def test_matrix_factorization(spark_ctx):
     t = IndexedBase('T')
 
     # The target.
-    target = TensorDef(t, (a, r), (b, r), dr.einst(
+    target = dr.define_einst(
+        t[a, b],
         4 * x[a, c] * u[c, b] + 2 * x[a, c] * v[c, b]
         - 2 * y[a, c] * u[c, b] - y[a, c] * v[c, b]
-    ))
+    )
     targets = [target]
 
     # The actual optimization.
