@@ -98,9 +98,13 @@ def _get_flop_cost(step):
         sum_size = get_total_size(term.sums)
 
         if isinstance(term.amp, Mul):
-            n_mult = len(term.amp.args) - 1
+            factors = term.amp.args
         else:
-            n_mult = 0
+            factors = (term.amp,)
+        # Minus one should be implemented via subtraction, hence renders no
+        # multiplication cost.
+        n_factors = sum(1 for i in factors if abs(i) != 1)
+        n_mult = n_factors - 1 if n_factors > 0 else 0
 
         if sum_size == 1:
             n_add = 0
