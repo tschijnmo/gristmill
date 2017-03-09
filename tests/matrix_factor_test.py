@@ -3,7 +3,7 @@
 from drudge import Range, Drudge
 from sympy import symbols, IndexedBase, Symbol
 
-from gristmill import optimize
+from gristmill import optimize, verify_eval_seq
 
 
 def test_matrix_factorization(spark_ctx):
@@ -55,3 +55,6 @@ def test_matrix_factorization(spark_ctx):
     # The actual optimization.
     res = optimize(targets)
     assert len(res) == 3
+
+    # Test the correctness.
+    assert verify_eval_seq(res, targets)
