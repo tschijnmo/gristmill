@@ -47,7 +47,18 @@ def add_costs(*args):
 
 def get_total_size(sums) -> Expr:
     """Get the total size of a summation list."""
-    size = prod_(i.size for _, i in sums)
+
+    size = Integer(1)
+    for _, i in sums:
+        curr = i.size
+        if curr is None:
+            raise ValueError(
+                'Invalid range for optimization', i,
+                'expecting a bound range.'
+            )
+        size *= curr
+        continue
+
     if isinstance(size, Expr):
         return size
     elif isinstance(size, int):
