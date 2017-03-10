@@ -1006,12 +1006,11 @@ class _Optimizer:
         prod_node = self._interms[
             ref.base if isinstance(ref, Indexed) else ref
         ]
+        self._optimize(prod_node)
+
         if len(prod_node.factors) > 1:
             # Single-factor does not offer collectible,
             # collectible * (something + 1) is so rare in real applications.
-
-            if len(prod_node.evals) == 0:
-                self._optimize(prod_node)
 
             for eval_i in prod_node.evals:
                 res.extend(self._find_collectibles_eval(
