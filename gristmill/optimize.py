@@ -400,7 +400,6 @@ class _Optimizer:
         for node in optimized:
             self._linearize_node(node, res)
             continue
-        res.reverse()
 
         return self._finalize(res)
 
@@ -440,10 +439,11 @@ class _Optimizer:
             return
 
         def_, deps = self._form_def(node)
-        res.append(def_)
         for i in deps:
             self._linearize_node(self._interms[i], res)
             continue
+        res.append(def_)
+
         node.generated = True
 
         return
