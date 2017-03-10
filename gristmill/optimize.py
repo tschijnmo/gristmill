@@ -135,10 +135,10 @@ class _EvalNode:
         self.base = base
         self.exts = exts
 
-        # Fields for definition nodes.
         self.evals = []  # type: typing.List[_EvalNode]
         self.total_cost = None
         self.n_refs = 0
+        self.generated = False
 
     def get_substs(self, indices):
         """Get substitutions and symbols requiring exclusion before indexing.
@@ -435,11 +435,16 @@ class _Optimizer:
     def _linearize_node(self, node: _EvalNode, res: list):
         """Linearize evaluation rooted in the given node into the result.
         """
+
+        if node.generated:
+            return
+
         def_, deps = self._form_def(node)
         res.append(def_)
         for i in deps:
             self._linearize_node(self._interms[i], res)
             continue
+        node.generated = True
 
         return
 
