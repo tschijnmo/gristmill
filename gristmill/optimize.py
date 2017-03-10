@@ -663,7 +663,7 @@ class _Optimizer:
         n_neg = 0
         n_pos = 0
         for i in coeffs:
-            if i.has(_NEG_UNITY):
+            if i.has(_NEG_UNITY) or i.is_negative:
                 n_neg += 1
             else:
                 n_pos += 1
