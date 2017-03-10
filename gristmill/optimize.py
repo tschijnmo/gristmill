@@ -8,7 +8,7 @@ import warnings
 
 from drudge import TensorDef, prod_, Term, Range
 from sympy import (
-    Integer, Symbol, Expr, IndexedBase, Mul, Indexed, sympify, gcd_list
+    Integer, Symbol, Expr, IndexedBase, Mul, Indexed, sympify, primitive
 )
 from sympy.utilities.iterables import multiset_partitions
 
@@ -673,26 +673,7 @@ class _Optimizer:
         # summations not present in any other term.  This can be hard to check.
 
         canon_new_sum = canon_new_sums.pop()
-
-        # The GCD computation does not take phase into account.
-        n_neg = 0
-        n_pos = 0
-        for i in coeffs:
-            if i.has(_NEG_UNITY) or i.is_negative:
-                n_neg += 1
-            else:
-                n_pos += 1
-            continue
-        if n_neg > n_pos:
-            phase = _NEG_UNITY
-        elif n_pos > n_neg:
-            phase = _UNITY
-        else:
-            phase = (
-                _NEG_UNITY if chosen[0].amp_factors[1].has(_NEG_UNITY)
-                else _UNITY
-            )
-        canon_coeff = gcd_list(coeffs) * phase
+        canon_coeff = _get_canon_coeff(coeffs, chosen)
 
         res_terms = []
         for term in terms:
@@ -1477,6 +1458,49 @@ _SUMMED_EXT = 1
 _SUMMED = 2
 
 _SUBSTED_EVAL_BASE = Symbol('gristmillSubstitutedEvalBase')
+
+
+#
+# Utility static functions.
+#
+
+class _SymbFactory(dict):
+    """A small symbol factory."""
+
+    def __missing__(self, key):
+        return Symbol('gristmillInternalSymbol{}'.format(key))
+
+
+_SYMB_FACTORY = _SymbFactory()
+
+
+def _get_canon_coeff(coeffs, chosen):
+    """Get the canonical coefficient from a list of coefficients."""
+
+    coeff, _ = primitive(sum(
+        v * _SYMB_FACTORY[i] for i, v in enumerate(coeffs)
+    ))
+
+    # The primitive computation does not take phase into account.
+    n_neg = 0
+    n_pos = 0
+    for i in coeffs:
+        if i.has(_NEG_UNITY) or i.is_negative:
+            n_neg += 1
+        else:
+            n_pos += 1
+        continue
+    if n_neg > n_pos:
+        phase = _NEG_UNITY
+    elif n_pos > n_neg:
+        phase = _UNITY
+    else:
+        phase = (
+            _NEG_UNITY if chosen[0].amp_factors[1].has(_NEG_UNITY)
+            else _UNITY
+        )
+
+    return coeff * phase
 
 
 #
