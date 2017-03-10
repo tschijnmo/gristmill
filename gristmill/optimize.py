@@ -22,7 +22,7 @@ from .utils import get_cost_key, add_costs, get_total_size, DSF
 
 
 def optimize(
-        computs: typing.Iterable[TensorDef], substs=None, interm_fmt='tau{}',
+        computs: typing.Iterable[TensorDef], substs=None, interm_fmt='tau^{}',
         simplify=True
 ) -> typing.List[TensorDef]:
     """Optimize the valuation of the given tensor contractions.
