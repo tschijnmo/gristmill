@@ -991,7 +991,7 @@ class _Optimizer:
         Collectibles are going to be yielded as key and infos pairs.
         """
 
-        coeff, factor = self._parse_interm_ref(term)
+        coeff, ref = self._parse_interm_ref(term)
 
         res = []  # type: typing.List[typing.Tuple[_Collectible, _CollectInfo]]
 
@@ -1002,7 +1002,7 @@ class _Optimizer:
             pass
 
         prod_node = self._interms[
-            factor.base if isinstance(factor, Indexed) else factor
+            ref.base if isinstance(ref, Indexed) else ref
         ]
         if len(prod_node.factors) > 1:
             # Single-factor does not offer collectible,
@@ -1013,7 +1013,7 @@ class _Optimizer:
 
             for eval_i in prod_node.evals:
                 res.extend(self._find_collectibles_eval(
-                    exts, factor, eval_i
+                    exts, ref, eval_i
                 ))
                 continue
 
@@ -1150,7 +1150,7 @@ class _Optimizer:
             )
 
             curr_exts = tuple(
-                itertools.chain(v.ranges.sums, v.ranges.other_exts),
+                itertools.chain(v.ranges.other_exts, v.ranges.sums),
             )
             if residue_exts is None:
                 residue_exts = curr_exts
