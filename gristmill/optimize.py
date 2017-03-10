@@ -1035,7 +1035,7 @@ class _Optimizer:
             eval_term = eval_terms[0]
             factors, coeff = eval_term.amp_factors
             eval_ = _Prod(
-                _SUBSTED_EVAL, (), eval_term.sums, coeff, factors
+                _SUBSTED_EVAL_BASE, exts, eval_term.sums, coeff, factors
             )
 
         sums = eval_.sums
@@ -1189,7 +1189,7 @@ class _Optimizer:
 
         base = self._get_next_internal(len(orig_exts) == 0)
 
-        new_node = _Prod(base, orig_exts, orig_node.sums, coeff, [
+        new_node = _Prod(base, orig_exts, eval_.sums, coeff, [
             collected_factor, interm
         ])
         new_node.evals = [new_node]
@@ -1461,7 +1461,7 @@ _EXT = 0
 _SUMMED_EXT = 1
 _SUMMED = 2
 
-_SUBSTED_EVAL = Symbol('gristmillSubstitutedEval')
+_SUBSTED_EVAL_BASE = Symbol('gristmillSubstitutedEvalBase')
 
 
 #
