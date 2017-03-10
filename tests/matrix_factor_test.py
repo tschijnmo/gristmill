@@ -64,7 +64,7 @@ def test_matrix_factorization(spark_ctx):
     assert len(res) == 3
 
     # Test the correctness.
-    assert verify_eval_seq(res, targets)
+    assert verify_eval_seq(res, targets, simplify=False)
 
     # Test the cost.
     cost = get_flop_cost(res)
@@ -97,7 +97,7 @@ def test_matrix_factorization(spark_ctx):
     assert len(res) == 3
 
     # Test the correctness.
-    assert verify_eval_seq(res, targets)
+    assert verify_eval_seq(res, targets, simplify=True)
 
     # Test the cost.
     cost = get_flop_cost(res)

@@ -1473,7 +1473,8 @@ _SUBSTED_EVAL_BASE = Symbol('gristmillSubstitutedEvalBase')
 
 
 def verify_eval_seq(
-        eval_seq: typing.Sequence[TensorDef], res: typing.Sequence[TensorDef]
+        eval_seq: typing.Sequence[TensorDef], res: typing.Sequence[TensorDef],
+        simplify=False
 ) -> bool:
     """Verify the correctness of an evaluation sequence for the results.
 
@@ -1486,11 +1487,26 @@ def verify_eval_seq(
     Note that this function can be very slow for large evaluations.  But it is
     advised to be used for all optimizations in mission-critical tasks.
 
+    Parameters
+    ----------
+
+    eval_seq
+        The evaluation sequence to verify, can be the output from
+        :py:func:`optimize` directly.
+
+    res
+        The original result to test the evaluation sequence against.  It can be
+        the input to :py:func:`optimize` directly.
+
+    simplify
+        If simplification is going to be performed after each step of the
+        back-substitution.  It is advised for larger complex evaluations.
+
     """
 
     substed_eval_seq = []
     for eval_ in eval_seq:
-        rhs = eval_.rhs.subst_all(substed_eval_seq)
+        rhs = eval_.rhs.subst_all(substed_eval_seq, simplify=simplify)
         new_def = TensorDef(eval_.base, eval_.exts, rhs)
         substed_eval_seq.append(new_def)
         continue
