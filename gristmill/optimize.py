@@ -396,12 +396,15 @@ class _Optimizer:
             self._set_n_refs(node)
             continue
 
+        interms = []
         res = []
         for node in optimized:
-            self._linearize_node(node, res)
+            curr = self._linearize_node(node, interms, keep=True)
+            assert curr is not None
+            res.append(curr)
             continue
 
-        return self._finalize(res)
+        return self._finalize(itertools.chain(interms, res))
 
     def _set_n_refs(self, node: _EvalNode):
         """Set reference counts from an evaluation node.
@@ -431,22 +434,27 @@ class _Optimizer:
 
         return
 
-    def _linearize_node(self, node: _EvalNode, res: list):
+    def _linearize_node(self, node: _EvalNode, res: list, keep=False):
         """Linearize evaluation rooted in the given node into the result.
+
+        If keep if set to True, the evaluation of the given node will not be
+        appended to the result list.
         """
 
         if node.generated:
-            return
+            return None
 
         def_, deps = self._form_def(node)
         for i in deps:
             self._linearize_node(self._interms[i], res)
             continue
-        res.append(def_)
 
         node.generated = True
 
-        return
+        if not keep:
+            res.append(def_)
+
+        return def_
 
     def _form_def(self, node: _EvalNode):
         """Form the final definition of an evaluation node."""
