@@ -880,7 +880,7 @@ class _Optimizer:
 
         return coeff * base[tuple(
             i for i, _ in canon_exts
-        )], self._interms[base]
+        )] if isinstance(base, IndexedBase) else base, self._interms[base]
 
     def _form_sum_interm(self, exts, terms) -> typing.Tuple[Expr, _EvalNode]:
         """Form a sum intermediate.
@@ -918,7 +918,7 @@ class _Optimizer:
 
         return coeff * base[tuple(
             i for i, _ in canon_exts
-        )], self._interms[base]
+        )] if isinstance(base, IndexedBase) else base, self._interms[base]
 
     def _form_sum_from_terms(self, base, exts, terms):
         """Form a summation node for given the terms.
@@ -1196,7 +1196,10 @@ class _Optimizer:
 
         self._interms[base] = new_node
 
-        return base[tuple(i for i, _ in orig_exts)]
+        return (
+            base[tuple(i for i, _ in orig_exts)]
+            if isinstance(base, IndexedBase) else base
+        )
 
     #
     # Product optimization.
