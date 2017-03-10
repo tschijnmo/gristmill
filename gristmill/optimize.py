@@ -141,19 +141,21 @@ class _EvalNode:
         self.n_refs = 0
 
     def get_substs(self, indices):
-        """Get the substitutions and new symbols for indexing the node.
+        """Get substitutions and symbols requiring exclusion before indexing.
         """
 
         substs = {}
-        new_symbs = set()
+        excl = set()
 
         assert len(indices) == len(self.exts)
         for i, j in zip(indices, self.exts):
-            substs[j[0]] = i
-            new_symbs |= i.atoms(Symbol)
+            dumm = j[0]
+            substs[dumm] = i
+            excl.add(dumm)
+            excl |= i.atoms(Symbol)
             continue
 
-        return substs, new_symbs
+        return substs, excl
 
 
 class _Sum(_EvalNode):
@@ -795,13 +797,13 @@ class _Optimizer:
     def _index_prod(self, node: _Prod, indices) -> typing.List[Term]:
         """Substitute the external indices in the evaluation node."""
 
-        substs, new_symbs = node.get_substs(indices)
+        substs, excl = node.get_substs(indices)
 
         # TODO: Add handling of sum intermediate reference in factors.
         term = Term(
             node.sums, node.coeff * prod_(node.factors), ()
         ).reset_dumms(
-            self._dumms, excl=self._excl | new_symbs
+            self._dumms, excl=self._excl | excl
         )[0].map(lambda x: x.xreplace(substs))
 
         return [term]
