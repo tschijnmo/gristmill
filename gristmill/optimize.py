@@ -967,13 +967,12 @@ class _Optimizer:
     def _optimize_sum(self, sum_node: _Sum):
         """Optimize the summation node."""
 
-        # In this function, term is short for sum term.
-        terms = list(sum_node.sum_terms)
+        # We first optimize the common terms.
         exts = sum_node.exts
+        terms, new_term_idxes = self._optimize_common_terms(sum_node)
 
+        # Now we embark upon the heroic factorization.
         collectibles = collections.defaultdict(dict)  # type: _Collectibles
-
-        new_term_idxes = list(i for i, _ in enumerate(terms))
         while True:
 
             for idx in new_term_idxes:
@@ -1007,10 +1006,101 @@ class _Optimizer:
             continue
         # End Main loop.
 
+        rem_terms = [i for i in terms if i is not None]
         sum_node.evals = [_Sum(
-            sum_node.base, sum_node.exts, [i for i in terms if i is not None]
+            sum_node.base, sum_node.exts, rem_terms
         )]
         return
+
+    def _optimize_common_terms(self, sum_node: _Sum) -> typing.Tuple[
+        typing.List[Expr], typing.List[int]
+    ]:
+        """Perform optimization of common intermediate references.
+        """
+
+        exts_dict = dict(sum_node.exts)
+
+        # Intermediate base -> (indices -> coefficient)
+        #
+        # This also gather terms with the same reference to deeper nodes.
+        interm_refs = collections.defaultdict(
+            lambda: collections.defaultdict(lambda: 0)
+        )
+
+        for term in sum_node.sum_terms:
+            coeff, ref = self._parse_interm_ref(term)
+            if isinstance(ref, Symbol):
+                base = ref
+                indices = ()
+            elif isinstance(ref, Indexed):
+                base = ref.base
+                indices = ref.indices
+            else:
+                assert False
+
+            interm_refs[base][indices] += coeff
+            continue
+
+        # Intermediate referenced only once goes to the result directly and wait
+        # to be factored, others wait to be pulled and do not participate in
+        # factorization.
+        res_terms = []
+        res_collectible_idxes = []
+        # Indices, coeffs tuple -> base, coeff
+        pull_info = collections.defaultdict(list)
+        for k, v in interm_refs.items():
+
+            if len(v) == 0:
+                assert False
+            elif len(v) == 1:
+                res_collectible_idxes.append(len(res_terms))
+                indices, coeff = v.popitem()
+                res_terms.append(k[indices] * coeff)
+            else:
+                # Here we use name for sorting directly, since here we cannot
+                # have general expressions hence no need to use the expensive
+                # sort_key.
+                raw = list(sorted(v.items(), key=lambda x: tuple(
+                    i.name for i in x[0]
+                )))
+                leading_coeff = raw[0][1]
+                pull_info[tuple(
+                    (i, j / leading_coeff) for i, j in raw
+                )].append((k, leading_coeff))
+
+        # Now we treat the terms from which new intermediates might be pulled
+        # out.
+        for k, v in pull_info.items():
+            pivot = k[0][0]
+            assert k[0][1] == 1
+            if len(v) == 1:
+                # No need to form a new intermediate.
+                base, coeff = v[0]
+                pivot_ref = base[pivot] * coeff
+            else:
+                # We need to form an intermediate here.
+                interm_exts = tuple(
+                    (i, exts_dict[i]) for i in pivot
+                )
+                pivot_ref, interm_node = self._form_sum_interm(interm_exts, [
+                    term.scale(coeff)
+                    for base, coeff in v
+                    for term in self._get_def(base[pivot])
+                    ])
+                self._optimize(interm_node)
+
+            for indices, coeff in k:
+                substs = {
+                    i: j for i, j in zip(pivot, indices)
+                    }
+                res_terms.append(
+                    pivot_ref.xreplace(substs) * coeff / k[0][1]
+                )
+                continue
+
+            continue
+
+        return res_terms, res_collectible_idxes
 
     def _find_collectibles(self, exts, term):
         """Find the collectibles from a given term.
