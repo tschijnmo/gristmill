@@ -550,29 +550,37 @@ class _Optimizer:
 
         return _Grain(base=node.base, exts=exts, terms=terms), deps
 
-    def _inline_sum_terms(self, sum_terms, res, substs=None):
+    def _inline_sum_terms(self, sum_terms, res):
         """Inline the summation terms from single-reference terms."""
 
         for sum_term in sum_terms:
-            sum_term = (
-                sum_term.xreplace(substs) if substs is not None else sum_term
-            )
-            _, ref = self._parse_interm_ref(sum_term)
+            coeff, ref = self._parse_interm_ref(sum_term)
             node = self._interms[
                 ref.base if isinstance(ref, Indexed) else ref
             ]
-            if isinstance(node, _Prod) or node.n_refs > 1:
-                res.append(sum_term)
-            else:
-                assert isinstance(node, _Sum)
+            assert len(node.evals) > 0
+            eval_ = node.evals[0]
+
+            if_inline = isinstance(eval_, _Sum) and (
+                node.n_refs == 1 or len(eval_.sum_terms) == 1
+            )
+            if if_inline:
                 if len(node.exts) == 0:
                     substs = None
                 else:
                     substs = {
-                        i[0]: j for i, j in zip(node.exts, ref.indices)
+                        i[0]: j for i, j in zip(eval_.exts, ref.indices)
                         }
-                self._inline_sum_terms(node.sum_terms, res, substs=substs)
+
+                proced_sum_terms = [
+                    (
+                        i.xreplace(substs) if substs is not None else sum_term
+                    ) * coeff for i in eval_.sum_terms
+                    ]
+                self._inline_sum_terms(proced_sum_terms, res)
                 continue
+            else:
+                res.append(sum_term)
             continue
 
         return
