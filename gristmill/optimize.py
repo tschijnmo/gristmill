@@ -511,7 +511,10 @@ class _Optimizer:
         eval_ = node.evals[0]
         assert isinstance(eval_, _Sum)
 
-        for term in eval_.sum_terms:
+        sum_terms = []
+        self._inline_sum_terms(eval_.sum_terms, sum_terms)
+        for term in sum_terms:
+
             coeff, ref = self._parse_interm_ref(term)
 
             # Sum term are guaranteed to be formed from references to products,
@@ -546,6 +549,33 @@ class _Optimizer:
             continue
 
         return _Grain(base=node.base, exts=exts, terms=terms), deps
+
+    def _inline_sum_terms(self, sum_terms, res, substs=None):
+        """Inline the summation terms from single-reference terms."""
+
+        for sum_term in sum_terms:
+            sum_term = (
+                sum_term.xreplace(substs) if substs is not None else sum_term
+            )
+            _, ref = self._parse_interm_ref(sum_term)
+            node = self._interms[
+                ref.base if isinstance(ref, Indexed) else ref
+            ]
+            if isinstance(node, _Prod) or node.n_refs > 1:
+                res.append(sum_term)
+            else:
+                assert isinstance(node, _Sum)
+                if len(node.exts) == 0:
+                    substs = None
+                else:
+                    substs = {
+                        i[0]: j for i, j in zip(node.exts, ref.indices)
+                        }
+                self._inline_sum_terms(node.sum_terms, res, substs=substs)
+                continue
+            continue
+
+        return
 
     def _is_input(self, node: _EvalNode):
         """Test if a product node is just a trivial reference to an input."""
