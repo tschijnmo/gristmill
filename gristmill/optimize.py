@@ -673,7 +673,8 @@ class _Optimizer:
         # summations not present in any other term.  This can be hard to check.
 
         canon_new_sum = canon_new_sums.pop()
-        canon_coeff = _get_canon_coeff(coeffs, chosen)
+        preferred = chosen[0].amp_factors[1]
+        canon_coeff = _get_canon_coeff(coeffs, preferred)
 
         res_terms = []
         for term in terms:
@@ -1474,7 +1475,7 @@ class _SymbFactory(dict):
 _SYMB_FACTORY = _SymbFactory()
 
 
-def _get_canon_coeff(coeffs, chosen):
+def _get_canon_coeff(coeffs, preferred):
     """Get the canonical coefficient from a list of coefficients."""
 
     coeff, _ = primitive(sum(
@@ -1495,10 +1496,11 @@ def _get_canon_coeff(coeffs, chosen):
     elif n_pos > n_neg:
         phase = _UNITY
     else:
-        phase = (
-            _NEG_UNITY if chosen[0].amp_factors[1].has(_NEG_UNITY)
+        preferred_phase = (
+            _NEG_UNITY if preferred.has(_NEG_UNITY) or preferred.is_negative
             else _UNITY
         )
+        phase = preferred_phase
 
     return coeff * phase
 
