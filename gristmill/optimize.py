@@ -718,9 +718,9 @@ class _Optimizer:
 
         res_terms = []
         for term in terms:
-            term, _ = self._canon_term(canon_new_sum, term, fix_new=True)
+            canon_term, _ = self._canon_term(canon_new_sum, term, fix_new=True)
             # TODO: Add support for complex conjugation.
-            res_terms.append(term.map(lambda x: x / canon_coeff))
+            res_terms.append(canon_term.map(lambda x: x / canon_coeff))
             continue
 
         return canon_coeff, tuple(
