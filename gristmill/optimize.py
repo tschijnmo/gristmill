@@ -1065,7 +1065,9 @@ class _Optimizer:
             elif len(v) == 1:
                 res_collectible_idxes.append(len(res_terms))
                 indices, coeff = v.popitem()
-                res_terms.append(k[indices] * coeff)
+                res_terms.append(
+                    (k[indices] if len(indices) > 0 else k) * coeff
+                )
             else:
                 # Here we use name for sorting directly, since here we cannot
                 # have general expressions hence no need to use the expensive
