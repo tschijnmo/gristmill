@@ -1677,10 +1677,19 @@ def verify_eval_seq(
     """
 
     substed_eval_seq = []
+    defs_dict = {}
     for eval_ in eval_seq:
-        rhs = eval_.rhs.subst_all(substed_eval_seq, simplify=simplify)
-        new_def = TensorDef(eval_.base, eval_.exts, rhs)
+        base = eval_.base
+        free_vars = eval_.rhs.free_vars
+        curr_defs = [
+            defs_dict[i] for i in free_vars if i in defs_dict
+            ]
+        rhs = eval_.rhs.subst_all(curr_defs, simplify=simplify)
+        new_def = TensorDef(base, eval_.exts, rhs)
         substed_eval_seq.append(new_def)
+        defs_dict[
+            base.label if isinstance(base, IndexedBase) else base
+        ] = new_def
         continue
 
     n_res = len(res)
