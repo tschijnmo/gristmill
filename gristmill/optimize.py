@@ -1573,7 +1573,8 @@ class _Optimizer:
             continue
 
         return _Prod(
-            prod_node.base, prod_node.exts, broken_sums, coeff, factors
+            prod_node.base, prod_node.exts, broken_sums,
+            coeff * prod_node.coeff, factors
         )
 
 
