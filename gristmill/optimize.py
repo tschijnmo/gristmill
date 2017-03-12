@@ -413,6 +413,8 @@ class _Optimizer:
         will be removed to avoid further complications.
         """
 
+        if len(node.evals) == 0:
+            self._optimize(node)
         assert len(node.evals) > 0
         del node.evals[1:]
         eval_ = node.evals[0]
