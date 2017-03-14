@@ -1,9 +1,13 @@
 """General utilities."""
 
 import collections
+import re
 import typing
 
 from drudge import prod_, TensorDef
+from jinja2 import (
+    Environment, PackageLoader, ChoiceLoader, DictLoader, contextfilter
+)
 from sympy import Expr, Symbol, Poly, Integer, Mul, poly_from_expr
 
 
@@ -279,3 +283,176 @@ class DSF(object):
         if idx != parent:
             self._parents[idx] = self._find_set(parent)
         return self._parents[idx]
+
+
+#
+# Jinja environment creation
+# --------------------------
+#
+
+
+def create_jinja_env(add_filters, add_globals, add_tests, add_templ):
+    """Create a Jinja environment for template rendering.
+
+    This function will create a Jinja environment suitable for rendering tensor
+    expressions.  Notably the templates will be retrieved from the ``templates``
+    directory in the package.  And some filters and predicates will be added,
+    including
+
+    wrap_line
+    form_indent
+    non_empty
+
+    """
+
+    # Set the Jinja environment up.
+    env = Environment(
+        trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True,
+        loader=ChoiceLoader(
+            [PackageLoader('gristmill')] +
+            ([DictLoader(add_templ)] if add_templ is not None else [])
+        )
+    )
+
+    # Add the default filters and tests for all printers.
+    env.filters['wrap_line'] = wrap_line
+    env.filters['form_indent'] = form_indent
+    env.tests['non_empty'] = non_empty
+
+    # Add the additional globals, filters, and tests.
+    if add_globals is not None:
+        env.globals.update(add_globals)
+    if add_filters is not None:
+        env.filters.update(add_filters)
+    if add_tests is not None:
+        env.tests.update(add_tests)
+
+    return env
+
+
+def wrap_line(line, breakable_regex, line_cont,
+              base_indent=0, max_width=80, rewrap=False):
+    """Wrap the given line within the given width.
+
+    This function is going to be exported to be used by template writers in
+    Jinja as a filter.
+
+    Parameters
+    ----------
+
+    line
+        The line to be wrapped.
+
+    breakable_regex
+        The regular expression giving the places where the line can be broke.
+        The parts in the regular expression that needs to be kept can be put in
+        a capturing parentheses.
+
+    line_cont
+        The string to be put by the end of line to indicate line continuation.
+
+    base_indent
+        The base indentation for the lines.
+
+    max_width
+        The maximum width of the lines to wrap the given line within.
+
+    rewrap
+        if the line is going to be rewrapped.
+
+    Return
+    ------
+    A list of lines for the breaking of the given line.
+
+    """
+
+    # First compute the width that is available for actual content.
+    avail_width = max_width - base_indent - len(line_cont)
+
+    # Remove all the new lines and old line-continuation and indentation for
+    # rewrapping.
+    if rewrap:
+        line = re.sub(
+            line_cont + '\\s*\n\\s*', '', line
+        )
+
+    # Break the given line according to the given regular expression.
+    trunks = re.split(breakable_regex, line)
+    # Have a shallow check and issue warning.
+    for i in trunks:
+        if len(i) > avail_width:
+            print('WARNING')
+            print(
+                'Trunk {} is longer than the given width of {}'.format(
+                    i, max_width
+                )
+            )
+            print('Longer width or finer partition can be given.')
+        continue
+
+    # Actually break the list of trunks into lines.
+    lines = []
+    curr_line = ''
+    for trunk in trunks:
+
+        if len(curr_line) == 0 or len(curr_line) + len(trunk) <= avail_width:
+            # When we are able to add the trunk to the current line. Note that
+            # when the current line is empty, the next trunk will be forced to
+            # be added.
+            curr_line += trunk
+        else:
+            # When the current line is already filled up.
+            #
+            # First dump the current line.
+            lines.append(curr_line)
+            # Then add the current trunk at the beginning of the next line. The
+            # left spaces could be striped.
+            curr_line = trunk.lstrip()
+
+        # Go on to the next trunk.
+        continue
+
+    else:
+
+        # We need to add the trailing current line after all the loop.
+        lines.append(curr_line)
+
+    # Before returning, we need to decorate the lines with indentation and
+    # continuation suffix.
+    decorated = [
+        ''.join([
+            ' ' * base_indent, v, line_cont if i != len(lines) - 1 else ''
+        ])
+        for i, v in enumerate(lines)
+        ]
+    return '\n'.join(decorated)
+
+
+def non_empty(sequence):
+    """Test if a given sequence is non-empty."""
+    return len(sequence) > 0
+
+
+@contextfilter
+def form_indent(eval_ctx, num: int) -> str:
+    """Form an indentation space block.
+
+    Parameters
+    ----------
+
+    eval_ctx
+        The evaluation context.
+    num
+        The number of the indentation. The size of the indentation is going to
+        be read from the context by attribute ``indent_size``.
+
+    Return
+    ------
+
+    A block of white spaces.
+
+    """
+
+    return ' ' * (
+        eval_ctx['indent_size'] * (num + eval_ctx['global_indent'])
+    )
