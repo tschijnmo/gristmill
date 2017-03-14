@@ -5,7 +5,7 @@ import textwrap
 
 import pytest
 from drudge import Drudge, Range
-from sympy import Symbol, IndexedBase, symbols, sin
+from sympy import Symbol, IndexedBase, symbols
 from sympy.printing.python import PythonPrinter
 
 from gristmill import BasePrinter, FortranPrinter, EinsumPrinter
@@ -48,7 +48,7 @@ def colourful_tensor(simple_drudge):
 
     tensor = dr.define(x[a, b], (
         ((2 * r) / (3 * s)) * u[b, a] -
-        dr.sum((c, p.R), u[a, c] * v[c, b] * sin(c) / 2)
+        dr.sum((c, p.R), u[a, c] * v[c, b] * c ** 2 / 2)
     ))
 
     return tensor
@@ -122,7 +122,7 @@ def test_base_printer_ctx(simple_drudge, colourful_tensor):
                 continue
 
             assert len(term.other_factors) == 1
-            assert term.other_factors[0] == 'sin(c)'
+            assert term.other_factors[0] == 'c**2'
 
         else:
             assert False
