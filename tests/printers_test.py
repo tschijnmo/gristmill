@@ -6,7 +6,7 @@ from drudge import Drudge, Range
 from sympy import Symbol, IndexedBase, symbols, sin
 from sympy.printing.python import PythonPrinter
 
-from gristmill import BasePrinter
+from gristmill import BasePrinter, FortranPrinter
 
 
 @pytest.fixture(scope='module')
@@ -124,3 +124,19 @@ def test_base_printer_ctx(simple_drudge, colourful_tensor):
 
         else:
             assert False
+
+
+def test_fortran_printer(simple_drudge, colourful_tensor):
+    """Test the functionality of the Fortran printer."""
+
+    dr = simple_drudge
+    tensor = colourful_tensor
+
+    printer = FortranPrinter()
+    decls, evals = printer.print_decl_eval([tensor])
+    assert len(decls) == 1
+    decl = decls[0]
+    assert len(evals) == 1
+    eval_ = evals[0]
+
+    # TODO: Add real test.
