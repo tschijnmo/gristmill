@@ -1,6 +1,8 @@
 """Tests for the base printer.
 """
 
+import textwrap
+
 import pytest
 from drudge import Drudge, Range
 from sympy import Symbol, IndexedBase, symbols, sin
@@ -154,9 +156,33 @@ def test_einsum_printer(simple_drudge):
     v = IndexedBase('v')
 
     tensor = dr.define_einst(
-        x[a, b], u[b, a] + u[a, c] * v[c, a]
+        x[a, b], u[b, a] - 2 * u[a, c] * v[c, b] / 3
     )
 
     printer = EinsumPrinter()
     code = printer.print_eval([tensor])
-    # TODO: Add real test.
+
+    for line in code.splitlines():
+        assert line[:4] == ' ' * 4
+        continue
+
+    exec_code = _EINSUM_DRIVER_CODE.format(code=textwrap.dedent(code))
+    env = {}
+    exec(exec_code, env, {})
+    assert env['diff'] < 1.0E-5  # Arbitrary delta.
+
+
+_EINSUM_DRIVER_CODE = """
+from numpy import einsum, array
+from numpy import linalg
+
+u = array([[1, 2], [3, 4]])
+v = array([[1, 0], [0, 1]])
+
+{code}
+
+expected = array([[ 0.33333333,  1.66666667], [ 0.0,  1.33333333]])
+global diff
+diff = linalg.norm(x - expected)
+
+"""
