@@ -227,7 +227,7 @@ class BasePrinter:
         """
 
         templ = self._env.get_template(templ_name)
-        return templ.render(ctx)
+        return templ.render(ctx.__dict__)
 
     def _form_indices_ctx(
             self, pairs: typing.Iterable[typing.Tuple[Expr, Range]],
@@ -267,3 +267,365 @@ class BasePrinter:
         return self._scal_printer.doprint(expr)
 
 
+#
+# The imperative code printers
+# ----------------------------
+#
+
+
+class ImperativeCodePrinter(BasePrinter):
+    """Printer for automatic generation of naive imperative code.
+
+    This printer supports the printing of the evaluation of tensor
+    expressions by simple loops and arithmetic operations.
+
+    This is mostly a base class that is going to be subclassed for different
+    languages.  For each language, mostly just the options for the language
+    could be given in the super initializer.  Most important ones are the
+    printer for the scalar expressions and the formatter of loops, as well as
+    some definition of literals and operators.
+
+    """
+
+    def __init__(self, scal_printer: Printer, print_indexed_cb,
+                 global_indent=1, indent_size=4, max_width=80,
+                 line_cont='', breakable_regex=r'(\s*[+-]\s*)', stmt_end='',
+                 add_globals=None, add_filters=None,
+                 add_tests=None, add_templ=None, **kwargs):
+        """
+        Initialize the automatic code printer.
+
+        scal_printer
+            A sympy printer used for the printing of scalar expressions.
+
+        print_indexed_cb
+            It will be called with the printed base, and the list of indices (as
+            described in :py:meth:`BasePrinter.transl`) to return the string for
+            the printed form.  This will be called after the given processing of
+            indexed nodes.
+
+        global_indent
+            The base global indentation of the generated code.
+
+        indent_size
+            The size of the indentation.
+
+        max_width
+            The maximum width for each line.
+
+        line_cont
+            The string used for indicating line continuation.
+
+        breakable_regex
+            The regular expression used to break long expressions.
+
+        stmt_end
+            The ending of the statements.
+
+        index_paren
+            The pair of parenthesis for indexing arrays.
+
+        All options to the base class :py:class:`BasePrinter` are also
+        supported.
+
+        """
+
+        # Some globals for template rendering.
+        default_globals = {
+            'global_indent': global_indent,
+            'indent_size': indent_size,
+            'max_width': max_width,
+            'line_cont': line_cont,
+            'breakable_regex': breakable_regex,
+            'stmt_end': stmt_end,
+        }
+        if add_globals is not None:
+            default_globals.update(add_globals)
+
+        # Initialize the base class.
+        super().__init__(
+            scal_printer,
+            add_globals=default_globals,
+            add_filters=add_filters, add_tests=add_tests, add_templ=add_templ,
+            **kwargs
+        )
+
+        self._print_indexed = print_indexed_cb
+
+    def proc_ctx(
+            self, tensor_def: TensorDef, term: typing.Optional[Term],
+            tensor_entry: types.SimpleNamespace,
+            term_entry: typing.Optional[types.SimpleNamespace]
+    ):
+        """Process the context.
+
+        The indexed nodes will be printed by user-given printer and given to
+        ``indexed`` attributes of the same node.  Also the term contexts will be
+        given an attribute named ``amp`` for the whole amplitude part put
+        together.
+        """
+
+        # This does the processing of the indexed nodes.
+        super().proc_ctx(tensor_def, term, tensor_entry, term_entry)
+
+        if term is None:
+            tensor_entry.indexed = self._print_indexed(
+                tensor_entry.base, tensor_entry.indices
+            )
+        else:
+            factors = []
+
+            if term_entry.numerator != '1':
+                factors.append(term_entry.numerator)
+
+            for i in term_entry.indexed_factors:
+                i.indexed = self._print_indexed(i.base, i.indices)
+                factors.append(i.indexed)
+                continue
+
+            factors.extend(term_entry.other_factors)
+
+            parts = [' * '.join(factors)]
+            if term_entry.denominator != 1:
+                parts.extend(['/', term_entry.denominator])
+
+            term_entry.amp = ' '.join(parts)
+
+        return
+
+    def print_eval(self, ctx: types.SimpleNamespace):
+        """Print the evaluation of a tensor definition.
+        """
+        return self.render('imperative', ctx)
+
+
+#
+# Printers for different languages
+# --------------------------------
+#
+
+
+class CPrinter(ImperativeCodePrinter):
+    """C code printer.
+
+    In this class, just some parameters for C programming language is fixed
+    relative to the base :py:class:`ImperativeCodePrinter`.
+    """
+
+    def __init__(self, **kwargs):
+        """Initialize a C code printer.
+
+        The printer class, the name of the template, the line continuation
+        symbol, and the statement ending will be set automatically.
+        """
+
+        super().__init__(
+            CCodePrinter(),
+            lambda base, indices: ''.join([base] + [
+                '[{}]'.format(i.index) for i in indices
+                ]),
+            line_cont='\\', stmt_end=';',
+            add_filters={
+                'form_loop_beg': _form_c_loop_beg,
+                'form_loop_end': _form_c_loop_end,
+            }, add_globals={
+                'zero_literal': '0.0'
+            },
+            **kwargs
+        )
+
+
+#
+# Some filters for C programming language
+#
+
+
+def _form_c_loop_beg(ctx):
+    """Form the loop beginning for C."""
+    return 'for({index}={lower}; {index}<{upper}, {index}++)'.format(
+        index=ctx.index, lower=ctx.lower, upper=ctx.upper
+    ) + ' {'
+
+
+def _form_c_loop_end(_):
+    """Form the loop ending for C."""
+    return '}'
+
+
+class FortranPrinter(ImperativeCodePrinter):
+    """Fortran code printer.
+
+    In this class, just some parameters for the *new* Fortran programming
+    language is fixed relative to the base :py:class:`ImperativeCodePrinter`.
+    """
+
+    def __init__(self, openmp=True, **kwargs):
+        """Initialize a Fortran code printer.
+
+        The printer class, the name of the template, and the line continuation
+        symbol will be set automatically.
+        """
+
+        if openmp:
+            add_templ = {
+                'tensor_prelude': _FORTRAN_OMP_PARALLEL_PRELUDE,
+                'tensor_finale': _FORTRAN_OMP_PARALLEL_FINALE,
+                'init_prelude': _FORTRAN_OMP_INIT_PRELUDE,
+                'init_finale': _FORTRAN_OMP_INIT_FINALE,
+                'term_prelude': _FORTRAN_OMP_TERM_PRELUDE,
+                'term_finale': _FORTRAN_OMP_TERM_FINALE,
+            }
+        else:
+            add_templ = None
+
+        super().__init__(
+            FCodePrinter(settings={'source_format': 'free'}),
+            lambda base, indices: base + (
+                '' if len(indices) == 0 else '({})'.format(', '.join(
+                    i.index for i in indices
+                ))
+            ),
+            line_cont='&',
+            add_filters={
+                'form_loop_beg': _form_fortran_loop_beg,
+                'form_loop_end': _form_fortran_loop_end,
+            }, add_globals={
+                'zero_literal': '0.0'
+            }, add_templ=add_templ,
+            **kwargs
+        )
+
+    def print_decl_eval(
+            self, tensor_defs: typing.Iterable[TensorDef],
+            decl_type='real', explicit_bounds=False
+    ) -> typing.Tuple[typing.List[str], typing.List[str]]:
+        """Print Fortran declarations and evaluations of tensor definitions.
+
+        Parameters
+        ----------
+
+        tensor_defs
+            The tensor definitions to print.
+
+        decl_type
+            The type to be declared for the tarrays.
+
+        explicit_bounds
+            If the lower and upper bounds should be written explicitly in the
+            declaration.
+
+        Return
+        ------
+
+        decls
+            The list of declaration strings.
+
+        evals
+            The list of evaluation strings.
+
+        """
+
+        decls = []
+        evals = []
+
+        for tensor_def in tensor_defs:
+            ctx = self.transl(tensor_def)
+            decls.append(self.print_decl(ctx, decl_type, explicit_bounds))
+            evals.append(self.print_eval(ctx))
+            continue
+
+        return decls, evals
+
+    def print_decl(
+            self, ctx, decl_type, explicit_bounds
+    ):
+        """Print the Fortran declaration of the LHS of a tensor definition.
+
+        A string will be returned that forms the naive declaration of the
+        given tarrays as local variables.
+
+        """
+
+        if len(ctx.indices) > 0:
+            sizes_decl = ', dimension({})'.format(', '.join(
+                ':'.join([i.lower, i.upper]) if explicit_bounds else i.size
+                for i in ctx.indices
+            ))
+        else:
+            sizes_decl = ''
+
+        base_indent = int(self._env.globals['global_indent']) * int(
+            self._env.globals['indent_size']
+        )
+        indentation = ' ' * base_indent
+
+        return ''.join([
+            indentation, decl_type, sizes_decl, ' :: ', ctx.base
+        ])
+
+
+_FORTRAN_OMP_PARALLEL_PRELUDE = """\
+!$omp parallel default(shared)
+"""
+
+_FORTRAN_OMP_PARALLEL_FINALE = "!$omp end parallel\n"
+
+_FORTRAN_OMP_INIT_PRELUDE = """\
+{% if n_ext > 0 %}
+!$omp do schedule(static)
+{% else %}
+!$omp single
+{% endif %}
+"""
+_FORTRAN_OMP_INIT_FINALE = """\
+{% if n_ext > 0 %}
+!$omp end do
+{% else %}
+!$omp end single
+{% endif %}
+"""
+
+_FORTRAN_OMP_TERM_PRELUDE = """\
+{% if n_ext > 0 %}
+!$omp do schedule(static)
+{% else %}
+{% if (term.sums | length) > 0 %}
+!$omp do schedule(static) reduction(+:{{ lhs }})
+{% else %}
+!$omp single
+{% endif %}
+{% endif %}
+"""
+
+_FORTRAN_OMP_TERM_FINALE = """\
+{% if (n_ext + (term.sums | length)) > 0 %}
+!$omp end do
+{% else %}
+!$omp end single
+{% endif %}
+"""
+
+
+#
+# Some filters for Fortran programming language
+#
+
+
+def _form_fortran_loop_beg(ctx):
+    """Form the loop beginning for Fortran."""
+
+    try:
+        lower = int(ctx.lower)
+        lower += 1
+        lower = str(lower)
+    except ValueError:
+        lower = ' + '.join([ctx.lower, 1])
+
+    return 'do {index}={lower}, {upper}'.format(
+        index=ctx.index, lower=lower, upper=ctx.upper
+    )
+
+
+def _form_fortran_loop_end(_):
+    """Form the loop ending for Fortran."""
+    return 'end do'
