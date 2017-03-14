@@ -6,7 +6,7 @@ from drudge import Drudge, Range
 from sympy import Symbol, IndexedBase, symbols, sin
 from sympy.printing.python import PythonPrinter
 
-from gristmill import BasePrinter, FortranPrinter
+from gristmill import BasePrinter, FortranPrinter, EinsumPrinter
 
 
 @pytest.fixture(scope='module')
@@ -139,4 +139,24 @@ def test_fortran_printer(simple_drudge, colourful_tensor):
     assert len(evals) == 1
     eval_ = evals[0]
 
+    # TODO: Add real test.
+
+
+def test_einsum_printer(simple_drudge):
+    """Test the functionality of the einsum printer."""
+
+    dr = simple_drudge
+    p = dr.names
+    a, b, c = p.R_dumms[:3]
+
+    x = IndexedBase('x')
+    u = IndexedBase('u')
+    v = IndexedBase('v')
+
+    tensor = dr.define_einst(
+        x[a, b], u[b, a] + u[a, c] * v[c, a]
+    )
+
+    printer = EinsumPrinter()
+    code = printer.print_eval([tensor])
     # TODO: Add real test.
