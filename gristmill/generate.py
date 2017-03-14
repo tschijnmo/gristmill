@@ -1,5 +1,6 @@
 """Generate source code from optimized computations."""
 
+import textwrap
 import types
 import typing
 
@@ -11,6 +12,7 @@ from sympy import (
 from sympy.printing.ccode import CCodePrinter
 from sympy.printing.fcode import FCodePrinter
 from sympy.printing.printer import Printer
+from sympy.printing.python import PythonPrinter
 
 from .utils import create_jinja_env
 
@@ -399,12 +401,6 @@ class ImperativeCodePrinter(BasePrinter):
         return self.render('imperative', ctx)
 
 
-#
-# Printers for different languages
-# --------------------------------
-#
-
-
 class CPrinter(ImperativeCodePrinter):
     """C code printer.
 
@@ -629,3 +625,69 @@ def _form_fortran_loop_beg(ctx):
 def _form_fortran_loop_end(_):
     """Form the loop ending for Fortran."""
     return 'end do'
+
+
+#
+# Einsum printer
+# --------------
+#
+
+
+class EinsumPrinter(BasePrinter):
+    """Printer for the einsum function.
+
+    For tensors that are classical tensor contractions, this printer generates
+    code based on the NumPy ``einsum`` function.  For contractions supported,
+    the code from this printer can also be used for Tensorflow.
+
+    """
+
+    def __init__(self, **kwargs):
+        """Initialize the printer.
+
+        All keyword arguments are forwarded to the base class
+        :py:class:`BasePrinter`.
+        """
+
+        super().__init__(PythonPrinter(), **kwargs)
+
+    def print_eval(
+            self, tensor_defs: typing.Iterable[TensorDef],
+            base_indent=4
+    ) -> str:
+        """Print the evaluation of the tensor definitions.
+
+        Parameters
+        ----------
+
+        tensor_defs
+            The tensor definitions for the evaluations.
+
+        base_indent
+            The base indent of the generated code.
+
+        Return
+        ------
+
+        The code for evaluations.
+
+        """
+
+        ctxs = []
+        for tensor_def in tensor_defs:
+            ctx = self.transl(tensor_def)
+            for i in ctx.terms:
+                if len(i.other_factors) > 0:
+                    raise ValueError(
+                        'Factors unable to be handled by einsum',
+                        i.other_factors
+                    )
+                continue
+            ctxs.append(ctx)
+            continue
+
+        code = '\n'.join(
+            self.render('einsum', i) for i in ctxs
+        )
+
+        return textwrap.indent(code, ' ' * base_indent)
