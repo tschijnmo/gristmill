@@ -1,6 +1,7 @@
 """Tests for the base printer.
 """
 
+import subprocess
 import textwrap
 
 import pytest
@@ -128,7 +129,7 @@ def test_base_printer_ctx(simple_drudge, colourful_tensor):
             assert False
 
 
-def test_fortran_printer(simple_drudge, colourful_tensor):
+def test_fortran_printer(simple_drudge, colourful_tensor, tmpdir):
     """Test the functionality of the Fortran printer."""
 
     dr = simple_drudge
@@ -137,11 +138,62 @@ def test_fortran_printer(simple_drudge, colourful_tensor):
     printer = FortranPrinter()
     decls, evals = printer.print_decl_eval([tensor])
     assert len(decls) == 1
-    decl = decls[0]
     assert len(evals) == 1
-    eval_ = evals[0]
 
-    # TODO: Add real test.
+    code = _FORTRAN_TEST_CODE.format(decl=decls[0], eval=evals[0])
+
+    orig_cwd = tmpdir.chdir()
+
+    tmpdir.join('test.f90').write(code)
+    stat = subprocess.run(['gfortran', '-o', 'test', '-fopenmp', 'test.f90'])
+    assert stat.returncode == 0
+    stat = subprocess.run(['./test'], stdout=subprocess.PIPE)
+    assert stat.stdout.decode().strip() == 'OK'
+
+    orig_cwd.chdir()
+
+
+_FORTRAN_TEST_CODE = """
+program main
+implicit none
+
+integer, parameter :: n = 100
+real :: r = 6
+real :: s = 2
+integer :: a, b, c
+
+real, dimension(n, n) :: u
+real, dimension(n, n) :: v
+
+{decl}
+real, dimension(n, n) :: diag
+real, dimension(n, n) :: expected
+
+call random_number(u)
+call random_number(v)
+
+{eval}
+
+diag = 0
+do a = 1, n
+    diag(a, a) = real(a ** 2) / 2
+end do
+
+expected = transpose(u) * 2 * r / (3 * s)
+expected = expected - matmul(u, matmul(diag, v))
+
+do a = 1, n
+    do b = 1, n
+        if (abs(x(a, b) - expected(a, b)) / abs(x(a, b)) > 1.0E-5) then
+            write(*, *) "WRONG"
+        end if
+    end do
+end do
+
+write(*, *) "OK"
+
+end program main
+"""
 
 
 def test_einsum_printer(simple_drudge):
