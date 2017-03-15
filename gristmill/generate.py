@@ -492,8 +492,8 @@ class FortranPrinter(ImperativeCodePrinter):
             ),
             line_cont='&',
             add_filters={
-                'form_loop_beg': _form_fortran_loop_beg,
-                'form_loop_end': _form_fortran_loop_end,
+                'form_loop_beg': self._form_fortran_loop_beg,
+                'form_loop_end': self._form_fortran_loop_end,
             }, add_globals={
                 'zero_literal': '0.0'
             }, add_templ=add_templ,
@@ -553,7 +553,8 @@ class FortranPrinter(ImperativeCodePrinter):
 
         if len(ctx.indices) > 0:
             sizes_decl = ', dimension({})'.format(', '.join(
-                ':'.join([i.lower, i.upper]) if explicit_bounds else i.size
+                ':'.join([self._print_lower(i.lower_expr), i.upper])
+                if explicit_bounds else i.size
                 for i in ctx.indices
             ))
         else:
@@ -567,6 +568,25 @@ class FortranPrinter(ImperativeCodePrinter):
         return ''.join([
             indentation, decl_type, sizes_decl, ' :: ', ctx.base
         ])
+
+    def _print_lower(self, lower: Expr):
+        """Print the lower bound based on the Fortran convention.
+        """
+        return self._print_scal(lower + Integer(1))
+
+    def _form_fortran_loop_beg(self, ctx):
+        """Form the loop beginning for Fortran."""
+
+        lower = self._print_lower(ctx.lower_expr)
+
+        return 'do {index}={lower}, {upper}'.format(
+            index=ctx.index, lower=lower, upper=ctx.upper
+        )
+
+    @staticmethod
+    def _form_fortran_loop_end(_):
+        """Form the loop ending for Fortran."""
+        return 'end do'
 
 
 _FORTRAN_OMP_PARALLEL_PRELUDE = """\
@@ -609,31 +629,6 @@ _FORTRAN_OMP_TERM_FINALE = """\
 !$omp end single
 {% endif %}
 """
-
-
-#
-# Some filters for Fortran programming language
-#
-
-
-def _form_fortran_loop_beg(ctx):
-    """Form the loop beginning for Fortran."""
-
-    try:
-        lower = int(ctx.lower)
-        lower += 1
-        lower = str(lower)
-    except ValueError:
-        lower = ' + '.join([ctx.lower, 1])
-
-    return 'do {index}={lower}, {upper}'.format(
-        index=ctx.index, lower=lower, upper=ctx.upper
-    )
-
-
-def _form_fortran_loop_end(_):
-    """Form the loop ending for Fortran."""
-    return 'end do'
 
 
 #
