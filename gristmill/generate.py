@@ -62,7 +62,8 @@ class BasePrinter:
             ``range`` are present to give the printed form of the index and the
             range it is over. For convenience, ``lower``, ``upper``, and
             ``size`` have the printed form of lower/upper bounds and the size of
-            the range.
+            the range.  We also have ``lower_expr``, ``upper_expr``, and
+            ``size_expr`` for the unprinted expression of them.
 
         terms
             A list of terms for the tensor, with each entry being a simple
@@ -251,14 +252,22 @@ class BasePrinter:
                     lower = None
                     upper = None
                     size = None
+                    lower_expr = None
+                    upper_expr = None
+                    size_expr = None
             else:
-                lower = self._print_scal(range_.lower)
-                upper = self._print_scal(range_.upper)
-                size = self._print_scal(range_.size)
+                lower_expr = range_.lower
+                upper_expr = range_.upper
+                size_expr = range_.size
+                lower = self._print_scal(lower_expr)
+                upper = self._print_scal(upper_expr)
+                size = self._print_scal(size_expr)
 
             res.append(types.SimpleNamespace(
-                index=self._print_scal(index),
-                range=range_, lower=lower, upper=upper, size=size
+                index=self._print_scal(index), range=range_,
+                lower=lower, upper=upper, size=size,
+                lower_expr=lower_expr, upper_expr=upper_expr,
+                size_expr=size_expr
             ))
             continue
 
