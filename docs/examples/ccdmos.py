@@ -69,6 +69,7 @@ def main():
     flop_cost_expr = get_flop_cost(eval_seq)
 
     for no in nos:
+        print('Benchmark NO={}'.format(no))
         nv = no * NVNO_RATIO
         flop_cost = flop_cost_expr.xreplace({symbs.no: no, symbs.nv: nv})
 
