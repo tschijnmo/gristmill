@@ -1,4 +1,4 @@
-"""Test on CCD equations."""
+"""Test on computations from CC theories."""
 
 from drudge import PartHoleDrudge
 from sympy import IndexedBase
