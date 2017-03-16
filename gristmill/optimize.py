@@ -946,6 +946,7 @@ class _Optimizer:
             base = self._interms_canon[canon_terms]
         else:
             base = self._get_next_internal(n_exts == 0)
+            self._interms_canon[canon_terms] = base
 
             node_exts = None
             node_terms = []
