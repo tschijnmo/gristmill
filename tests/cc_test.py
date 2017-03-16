@@ -42,4 +42,36 @@ def test_ccd_doubles_terms(parthole_drudge):
 
     eval_seq = optimize(targets, substs={p.nv: p.no * 10})
 
-    verify_eval_seq(eval_seq, targets)
+    assert verify_eval_seq(eval_seq, targets)
+
+
+def test_ccsd_singles_terms(parthole_drudge):
+    """Test selected terms in CCSD singles equation.
+
+    The purpose of this test is the capability of recognition of repeated
+    appearance of the same summation intermediates.
+    """
+
+    dr = parthole_drudge
+    p = dr.names
+
+    a, b, c = p.V_dumms[:3]
+    i, j, k = p.O_dumms[:3]
+    u = dr.two_body
+    f = dr.fock
+    t = IndexedBase('t')
+    dr.set_dbbar_base(t, 2)
+
+    r = IndexedBase('r')
+    tensor = dr.define_einst(
+        r[a, i],
+        t[a, b, i, j] * u[j, k, b, c] * t[c, k] + t[a, b, i, j] * f[j, b]
+        - t[a, j] * t[b, i] * f[j, b]
+        - t[a, j] * t[b, i] * t[c, k] * u[j, k, b, c]
+    )
+    targets = [tensor]
+
+    eval_seq = optimize(targets, substs={p.nv: p.no * 10})
+
+    assert verify_eval_seq(eval_seq, targets)
+    assert len(eval_seq) == 4
