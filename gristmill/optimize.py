@@ -649,7 +649,7 @@ class _Optimizer:
         The labels in the ranges are assumed to be decorated.
         """
         return tuple(
-            (i, j.replace_label(j.label[-1])) for i, j in sums
+            (i, j.replace_label(j.label[0])) for i, j in sums
         )
 
     def _canon_terms(self, new_sums, terms):
@@ -733,14 +733,13 @@ class _Optimizer:
         Internal method for _canon_terms, not supposed to be directly called.
         """
 
-        n_new = len(new_sums)
         term = Term(tuple(itertools.chain(
             (
-                (v[0], v[1].replace_label((_EXT, i, v[1].label[-1])))
+                (v[0], v[1].replace_label((v[1].label[0], _EXT, i)))
                 for i, v in enumerate(new_sums)
             ) if fix_new else new_sums,
             (
-                (i, j.replace_label((_SUMMED, j.label)))
+                (i, j.replace_label((j.label, _SUMMED)))
                 for i, j in term.sums
             )
         )), term.amp, ())
@@ -755,14 +754,28 @@ class _Optimizer:
             dumms=self._dumms, excl=self._excl
         )
 
-        canon_new_sums = new_sums if fix_new else canon_sums[:n_new]
+        canon_new_sums = []
+        term_new_sums = []
+        term_sums = []
+        i_new = 0
+        for i, j in zip(dumm_reset.sums, canon_sums):
+            if j[1].label[1] == _SUMMED:
+                # Existing summations.
+                term_sums.append(i)
+            else:
+                if fix_new:
+                    assert j[0] == new_sums[i_new][0]
+                    range_ = new_sums[i_new][1]
+                else:
+                    range_ = j[1]
+                canon_new_sums.append((j[0], range_))
+                term_new_sums.append((i[0], range_))
+                i_new += 1
+            continue
+
         return dumm_reset.map(lambda x: x, sums=tuple(itertools.chain(
-            (
-                (i[0], j[1])
-                for i, j in zip(dumm_reset.sums, canon_new_sums)
-            ),
-            dumm_reset.sums[n_new:]
-        ))), canon_new_sums
+            term_new_sums, term_sums
+        ))), tuple(canon_new_sums)
 
     def _parse_interm_ref(self, sum_term: Expr):
         """Get the coefficient and pure intermediate reference in a reference.
@@ -887,7 +900,7 @@ class _Optimizer:
         """
 
         decored_exts = tuple(
-            (i, j.replace_label((_EXT, j.label)))
+            (i, j.replace_label((j.label, _EXT)))
             for i, j in exts
         )
         n_exts = len(decored_exts)
@@ -922,7 +935,7 @@ class _Optimizer:
         """
 
         decored_exts = tuple(
-            (i, j.replace_label((_EXT, j.label)))
+            (i, j.replace_label((j.label, _EXT)))
             for i, j in exts
         )
         n_exts = len(decored_exts)
@@ -1195,7 +1208,7 @@ class _Optimizer:
             symb, range_ = v
             if symb in involved_symbs:
                 involved_exts.append((
-                    symb, range_.replace_label((_EXT, i, range_.label))
+                    symb, range_.replace_label((range_.label, _EXT, i))
                 ))
             else:
                 other_exts.append((symb, range_))  # Undecorated.
@@ -1206,7 +1219,7 @@ class _Optimizer:
             # Sums not involved in both should be pushed in.
             assert i in involved_symbs
             involved_sums.append((
-                i, j.replace_label((_SUMMED_EXT, j.label))
+                i, j.replace_label((j.label, _SUMMED_EXT))
             ))
             continue
 
@@ -1219,7 +1232,7 @@ class _Optimizer:
             other_exts=other_exts
         )
 
-        new_sums = (i for i in all_sums if i[1].label[0] == _SUMMED_EXT)
+        new_sums = (i for i in all_sums if i[1].label[1] == _SUMMED_EXT)
         return key, ranges, coeff, {
             i[0]: j[0]
             for i, j in zip(involved_sums, new_sums)
