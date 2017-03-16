@@ -1,19 +1,27 @@
 """Test on computations from CC theories."""
 
+import pytest
 from drudge import PartHoleDrudge
 from sympy import IndexedBase
 
 from gristmill import optimize, verify_eval_seq
 
 
-def test_ccd_doubles_terms(spark_ctx):
+@pytest.fixture(scope='module')
+def parthole_drudge(spark_ctx):
+    """The particle-hold drudge."""
+    dr = PartHoleDrudge(spark_ctx)
+    return dr
+
+
+def test_ccd_doubles_terms(parthole_drudge):
     """Test optimization of selected terms in CCD equations.
 
     This purpose of this test is mostly on the treatment of term in the present
     of symmetries.
     """
 
-    dr = PartHoleDrudge(spark_ctx)
+    dr = parthole_drudge
     p = dr.names
 
     a, b, c, d = p.V_dumms[:4]
