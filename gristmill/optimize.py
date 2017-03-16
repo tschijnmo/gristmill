@@ -532,7 +532,7 @@ class _Optimizer:
                 assert isinstance(eval_, _Prod)
                 indices = ref.indices if isinstance(ref, Indexed) else ()
                 term = self._index_prod(eval_, indices)[0]
-                factors, term_coeff = term.amp_factors
+                factors, term_coeff = term.get_amp_factors(self._interms)
 
                 # Switch back to evaluation node for using the facilities for
                 # product nodes.
@@ -920,7 +920,7 @@ class _Optimizer:
             key_term = key[0]
             key_exts = self._write_in_orig_ranges(key_term.sums[:n_exts])
             key_sums = key_term.sums[n_exts:]
-            key_factors, key_coeff = key_term.amp_factors
+            key_factors, key_coeff = key_term.get_amp_factors(self._interms)
             interm = _Prod(
                 base, key_exts, key_sums, key_coeff, key_factors
             )
@@ -1172,7 +1172,7 @@ class _Optimizer:
             eval_terms = self._index_prod(eval_, ref.indices)
             assert len(eval_terms) == 1
             eval_term = eval_terms[0]
-            factors, coeff = eval_term.amp_factors
+            factors, coeff = eval_term.get_amp_factors(self._interms)
             eval_ = _Prod(
                 _SUBSTED_EVAL_BASE, exts, eval_term.sums, coeff, factors
             )
