@@ -8,7 +8,7 @@ import warnings
 
 from drudge import TensorDef, prod_, Term, Range
 from sympy import (
-    Integer, Symbol, Expr, IndexedBase, Mul, Indexed, sympify, primitive
+    Integer, Symbol, Expr, IndexedBase, Mul, Indexed, sympify, primitive, Wild
 )
 from sympy.utilities.iterables import multiset_partitions
 
@@ -606,17 +606,41 @@ class _Optimizer:
         """
 
         next_idx = 0
-        substs = {}
+
+        substs = {}  # For normal substitution of bases.
+        repls = []  # For removed shallow intermediates
+
+        def proc_amp(amp):
+            """Process the amplitude by making the found substitutions."""
+            for i in reversed(repls):
+                amp = amp.replace(*i)
+                continue
+            return amp.xreplace(substs)
 
         res = []
         for comput in computs:
             base = comput.base
             exts = tuple((s, self._input_ranges[r]) for s, r in comput.exts)
-            terms = [i.map(lambda x: x.xreplace(substs), sums=tuple(
-                (s, self._input_ranges[r]) for s, r in i.sums
-            )) for i in comput.terms]
+            terms = [
+                i.map(proc_amp, sums=tuple(
+                    (s, self._input_ranges[r]) for s, r in i.sums
+                )) for i in comput.terms
+                ]
 
             if base in self._interms:
+
+                if len(terms) == 1 and len(terms[0].sums) == 0:
+                    # Remove shallow intermediates.  The saving might be too
+                    # modest to justify the additional memory consumption.
+                    repl_lhs = base[tuple(
+                        _WILD_FACTORY[i] for i, _ in enumerate(exts)
+                    )]
+                    repl_rhs = proc_amp(terms[0].amp.xreplace(
+                        {v[0]: _WILD_FACTORY[i] for i, v in enumerate(exts)}
+                    ))
+                    repls.append((repl_lhs, repl_rhs))
+                    continue  # No new intermediate added.
+
                 final_base = type(base)(self._interm_fmt.format(next_idx))
                 next_idx += 1
                 substs[base] = final_base
@@ -1620,6 +1644,16 @@ class _SymbFactory(dict):
 
 
 _SYMB_FACTORY = _SymbFactory()
+
+
+class _WildFactory(dict):
+    """A small wild symbol factory."""
+
+    def __missing__(self, key):
+        return Wild('gristmillInternalWild{}'.format(key))
+
+
+_WILD_FACTORY = _WildFactory()
 
 
 def _get_canon_coeff(coeffs, preferred):
