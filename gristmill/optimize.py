@@ -1724,9 +1724,12 @@ def verify_eval_seq(
 
     """
 
+    n_res = len(res)
+    n_interms = len(eval_seq) - n_res
+
     substed_eval_seq = []
     defs_dict = {}
-    for eval_ in eval_seq:
+    for idx, eval_ in enumerate(eval_seq):
         base = eval_.base
         free_vars = eval_.rhs.free_vars
         curr_defs = [
@@ -1735,12 +1738,14 @@ def verify_eval_seq(
         rhs = eval_.rhs.subst_all(curr_defs, simplify=simplify)
         new_def = TensorDef(base, eval_.exts, rhs)
         substed_eval_seq.append(new_def)
-        defs_dict[
-            base.label if isinstance(base, IndexedBase) else base
-        ] = new_def
+
+        if idx < n_interms:
+            defs_dict[
+                base.label if isinstance(base, IndexedBase) else base
+            ] = new_def
+
         continue
 
-    n_res = len(res)
     for i, j in zip(substed_eval_seq[-n_res:], res):
         if i.lhs != j.lhs:
             raise ValueError(
