@@ -70,4 +70,6 @@ def test_optimization_of_common_terms(spark_ctx):
 
     # Check cost.
     cost = get_flop_cost(eval_seq)
+    assert cost == 2 * n ** 3 + 2 * n ** 2
+    cost = get_flop_cost(eval_seq, ignore_consts=False)
     assert cost == 2 * n ** 3 + 3 * n ** 2

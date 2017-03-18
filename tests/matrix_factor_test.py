@@ -69,8 +69,10 @@ def test_matrix_factorization(spark_ctx):
     # Test the cost.
     cost = get_flop_cost(res)
     leading_cost = get_flop_cost(res, leading=True)
-    assert cost == 2 * n ** 3 + 4 * n ** 2
+    assert cost == 2 * n ** 3 + 2 * n ** 2
     assert leading_cost == 2 * n ** 3
+    cost = get_flop_cost(res, ignore_consts=False)
+    assert cost == 2 * n ** 3 + 4 * n ** 2
 
     #
     # Test case 2.
@@ -102,5 +104,7 @@ def test_matrix_factorization(spark_ctx):
     # Test the cost.
     cost = get_flop_cost(res)
     leading_cost = get_flop_cost(res, leading=True)
-    assert cost == 4 * n ** 3 + 2 * n ** 2
+    assert cost == 4 * n ** 3 + n ** 2
     assert leading_cost == 4 * n ** 3
+    cost = get_flop_cost(res, ignore_consts=False)
+    assert cost == 4 * n ** 3 + 2 * n ** 2
