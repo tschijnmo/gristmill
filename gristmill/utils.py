@@ -8,7 +8,7 @@ from drudge import prod_, TensorDef
 from jinja2 import (
     Environment, PackageLoader, ChoiceLoader, DictLoader, contextfilter
 )
-from sympy import Expr, Symbol, Poly, Integer, Mul, poly_from_expr
+from sympy import Expr, Symbol, Poly, Integer, Mul, poly_from_expr, Number
 
 
 #
@@ -76,7 +76,10 @@ def get_total_size(sums) -> Expr:
 #
 
 
-def get_flop_cost(eval_seq: typing.Iterable[TensorDef], leading=False):
+def get_flop_cost(
+        eval_seq: typing.Iterable[TensorDef], leading=False,
+        ignore_consts=True
+):
     """Get the FLOP cost for the given evaluation sequence.
 
     This function gives the count of floating-point operations, addition and
@@ -96,13 +99,17 @@ def get_flop_cost(eval_seq: typing.Iterable[TensorDef], leading=False):
         symbols are present in the range sizes, terms with the highest total
         scaling is going to be picked.
 
+    ignore_consts
+        If the cost of scaling with constants can be ignored.  :math:`2 x_i y_j`
+        could count as just one FLOP when it is set, otherwise it would be two.
+
     """
 
-    cost = sum(_get_flop_cost(i) for i in eval_seq)
+    cost = sum(_get_flop_cost(i, ignore_consts) for i in eval_seq)
     return _get_leading(cost) if leading else cost
 
 
-def _get_flop_cost(step):
+def _get_flop_cost(step, ignore_consts):
     """Get the FLOP cost of a tensor evaluation step."""
 
     ext_size = get_total_size(step.exts)
@@ -116,8 +123,14 @@ def _get_flop_cost(step):
             factors = term.amp.args
         else:
             factors = (term.amp,)
-        # Minus one should be implemented via subtraction, hence renders no
-        # multiplication cost.
+
+        if ignore_consts:
+            factors = (i for i in factors if not isinstance(i, Number))
+        else:
+            # Minus one should be implemented via subtraction, hence renders no
+            # multiplication cost.
+            factors = (i for i in factors if abs(i) != 1)
+
         n_factors = sum(1 for i in factors if abs(i) != 1)
         n_mult = n_factors - 1 if n_factors > 0 else 0
 
