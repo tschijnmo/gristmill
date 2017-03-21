@@ -11,6 +11,7 @@ Welcome to gristmill's documentation!
    :caption: Contents:
 
    intro
+   releases/index
    api
 
 
