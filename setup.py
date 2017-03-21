@@ -16,7 +16,7 @@ CLASSIFIERS = [
 
 setup(
     name='gristmill',
-    version='0.2.0',
+    version='0.3.0dev',
     description=DESCRIPTION.splitlines()[0],
     long_description=DESCRIPTION,
     url='https://github.com/tschijnmo/gristmill',

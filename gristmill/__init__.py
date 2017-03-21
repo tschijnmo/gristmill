@@ -10,7 +10,7 @@ from .generate import (
 from .optimize import optimize, verify_eval_seq
 from .utils import get_flop_cost
 
-__version__ = '0.2.0'
+__version__ = '0.3.0dev'
 
 __all__ = [
     'optimize',
