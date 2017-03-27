@@ -251,13 +251,13 @@ class _Optimizer:
         # for external indices and summations.
         pre_grist = [
             self._form_pre_grist(comput, substs) for comput in computs
-            ]
+        ]
 
         # Finalize grist formation by resetting the dummies.
         self._dumms = {
             k: self._drudge.dumms.value[v]
             for k, v in self._input_ranges.items()
-            }
+        }
 
         self._grist = [self._reset_dumms(grain) for grain in pre_grist]
 
@@ -318,7 +318,7 @@ class _Optimizer:
             lower, upper = [
                 self._check_range_var(i.xreplace(substs), range_)
                 for i in [range_.lower, range_.upper]
-                ]
+            ]
 
             new_range = Range(range_.label, lower=lower, upper=upper)
             if new_range not in self._input_ranges:
@@ -572,13 +572,13 @@ class _Optimizer:
                 else:
                     substs = {
                         i[0]: j for i, j in zip(eval_.exts, ref.indices)
-                        }
+                    }
 
                 proced_sum_terms = [
                     (
                         i.xreplace(substs) if substs is not None else sum_term
                     ) * coeff for i in eval_.sum_terms
-                    ]
+                ]
                 self._inline_sum_terms(proced_sum_terms, res)
                 continue
             else:
@@ -625,7 +625,7 @@ class _Optimizer:
                 i.map(proc_amp, sums=tuple(
                     (s, self._input_ranges[r]) for s, r in i.sums
                 )) for i in comput.terms
-                ]
+            ]
 
             if base in self._interms:
 
@@ -1136,13 +1136,13 @@ class _Optimizer:
                     term.scale(coeff)
                     for base, coeff in v
                     for term in self._get_def(base[pivot])
-                    ])
+                ])
                 self._optimize(interm_node)
 
             for indices, coeff in k:
                 substs = {
                     i: j for i, j in zip(pivot, indices)
-                    }
+                }
                 res_terms.append(
                     pivot_ref.xreplace(substs) * coeff / k[0][1]
                 )
@@ -1261,7 +1261,7 @@ class _Optimizer:
         return key, ranges, coeff, {
             i[0]: j[0]
             for i, j in zip(involved_sums, new_sums)
-            }
+        }
 
     def _choose_collectible(self, collectibles: _Collectibles):
         """Choose the most profitable collectible factor."""
@@ -1438,11 +1438,11 @@ class _Optimizer:
 
         factor_atoms = [
             i.atoms(Symbol) for i in prod_node.factors
-            ]
+        ]
         sum_involve = [
             {j for j, v in enumerate(factor_atoms) if i in v}
             for i, _ in prod_node.sums
-            ]
+        ]
 
         dumm2index = tuple(
             {v[0]: j for j, v in enumerate(i)}
@@ -1455,7 +1455,7 @@ class _Optimizer:
                 for i in dumm2index
             )
             for atoms in factor_atoms
-            ]
+        ]
 
         # Actual generation.
         for broken_size, kept in self._gen_kept_sums(prod_node.sums):
@@ -1564,14 +1564,14 @@ class _Optimizer:
         involved_exts, involved_sums = [
             set.union(*[factor_infos[i][label] for i in factor_idxes])
             for label in [0, 1]
-            ]
+        ]
 
         factors = [prod_node.factors[i] for i in factor_idxes]
         exts = [
             v
             for i, v in enumerate(prod_node.exts)
             if i in involved_exts
-            ]
+        ]
         sums = []
 
         for i, v in enumerate(prod_node.sums):
@@ -1734,7 +1734,7 @@ def verify_eval_seq(
         free_vars = eval_.rhs.free_vars
         curr_defs = [
             defs_dict[i] for i in free_vars if i in defs_dict
-            ]
+        ]
         rhs = eval_.rhs.subst_all(curr_defs, simplify=simplify)
         new_def = TensorDef(base, eval_.exts, rhs)
         substed_eval_seq.append(new_def)
