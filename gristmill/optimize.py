@@ -1331,11 +1331,18 @@ class _Optimizer:
                 i.add_cost for i in infos.values()
             )
             saving_key = get_cost_key(saving)
-            if largest_saving is None or saving_key > largest_saving[1]:
+
+            if_save = len(saving_key[1]) > 0 and saving_key[1][0] > 0
+            if_better = (
+                largest_saving is None or saving_key > largest_saving[1]
+            )
+
+            if if_save and if_better:
                 largest_saving = (saving, saving_key)
                 optimal = (collectible, infos)
                 orig_cost = sum(i.eval_.total_cost for i in infos.values())
                 new_total_cost = orig_cost - raw_saving
+
             continue
 
         if optimal is None:
