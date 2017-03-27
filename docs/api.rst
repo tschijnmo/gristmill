@@ -20,6 +20,9 @@ Evaluation Optimization
 
 .. autofunction:: optimize
 
+.. autoclass:: Strategy
+    :members:
+
 .. autofunction:: verify_eval_seq
 
 .. autofunction:: get_flop_cost
