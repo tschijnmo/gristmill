@@ -52,7 +52,7 @@ class Strategy(enum.Enum):
 
 def optimize(
         computs: typing.Iterable[TensorDef], substs=None, interm_fmt='tau^{}',
-        simplify=True
+        simplify=True, strategy=Strategy.SEARCHED
 ) -> typing.List[TensorDef]:
     """Optimize the valuation of the given tensor contractions.
 
@@ -78,6 +78,9 @@ def optimize(
         If the input is going to be simplified before processing.  It can be
         disabled when the input is already simplified.
 
+    strategy
+        The optimization strategy, as explained in :py:class:`Strategy`.
+
     """
 
     substs = {} if substs is None else substs
@@ -87,8 +90,11 @@ def optimize(
     else:
         computs = list(computs)
 
+    if not isinstance(strategy, Strategy):
+        raise TypeError('Invalid optimization strategy', strategy)
+
     opt = _Optimizer(
-        computs, substs=substs, interm_fmt=interm_fmt
+        computs, substs=substs, interm_fmt=interm_fmt, strategy=strategy
     )
 
     return opt.optimize()
@@ -234,12 +240,13 @@ class _Optimizer:
     This internal optimizer can only be used once for one set of input.
     """
 
-    def __init__(self, computs, substs, interm_fmt):
+    def __init__(self, computs, substs, interm_fmt, strategy):
         """Initialize the optimizer."""
 
         self._prepare_grist(computs, substs)
 
         self._interm_fmt = interm_fmt
+        self._strategy = strategy
 
         self._next_internal_idx = 0
 
