@@ -98,7 +98,8 @@ _CollectInfo = collections.namedtuple('_CollectInfo', [
     'lr',
     'coeff',
     'substs',
-    'ranges'
+    'ranges',
+    'add_cost'
 ])
 
 _Ranges = collections.namedtuple('_Ranges', [
@@ -1038,11 +1039,13 @@ class _Optimizer:
                 continue
             new_term_idxes.clear()
 
-            to_collect, infos = self._choose_collectible(collectibles)
+            to_collect, infos, total_cost = self._choose_collectible(
+                collectibles
+            )
             if to_collect is None:
                 break
 
-            new_term_idx = self._collect(terms, infos)
+            new_term_idx = self._collect(terms, infos, total_cost)
             new_term_idxes.append(new_term_idx)
 
             del collectibles[to_collect]
@@ -1179,17 +1182,21 @@ class _Optimizer:
 
             for eval_i in prod_node.evals:
                 res.extend(self._find_collectibles_eval(
-                    exts, ref, eval_i
+                    exts, ref, eval_i, prod_node.total_cost
                 ))
                 continue
 
         return res
 
-    def _find_collectibles_eval(self, exts, ref: Expr, eval_: _Prod):
+    def _find_collectibles_eval(
+            self, exts, ref: Expr, eval_: _Prod, opt_cost
+    ):
         """Get the collectibles for a particular evaluations of a product."""
 
         # To begin, we first need to substitute the external indices in for this
         # particular evaluation inside its ambient.
+        total_cost = eval_.total_cost
+        assert total_cost is not None
         if len(eval_.exts) == 0:
             assert isinstance(ref, Symbol)
         else:
@@ -1201,6 +1208,7 @@ class _Optimizer:
             eval_ = _Prod(
                 _SUBSTED_EVAL_BASE, exts, eval_term.sums, coeff, factors
             )
+            eval_.total_cost = total_cost
 
         sums = eval_.sums
         factors = eval_.factors
@@ -1215,7 +1223,8 @@ class _Optimizer:
             )
             res.append((collectible, _CollectInfo(
                 eval_=eval_, lr=lr,
-                coeff=coeff, substs=substs, ranges=ranges
+                coeff=coeff, substs=substs, ranges=ranges,
+                add_cost=eval_.total_cost - opt_cost
             )))
             continue
 
@@ -1264,21 +1273,39 @@ class _Optimizer:
         }
 
     def _choose_collectible(self, collectibles: _Collectibles):
-        """Choose the most profitable collectible factor."""
+        """Choose the most profitable collectible factor.
+
+        The collectible, its infos, and the final cost of the evaluation after
+        the collection will be returned.
+        """
 
         with_saving = (
             i for i in collectibles.items() if len(i[1]) > 1
         )
 
-        try:
-            return max(with_saving, key=lambda x: get_cost_key(
-                # Any range is sufficient for the determination of savings.
-                self._get_collectible_saving(
-                    next(iter(x[1].values())).ranges
-                )
-            ))
-        except ValueError:
-            return None, None
+        optimal = None
+        new_total_cost = None
+        largest_saving = None
+        for collectible, infos in with_saving:
+            # Any range is sufficient for the determination of savings.
+            raw_saving = self._get_collectible_saving(
+                next(iter(infos.values())).ranges
+            )
+            saving = raw_saving - sum(
+                i.add_cost for i in infos.values()
+            )
+            saving_key = get_cost_key(saving)
+            if largest_saving is None or saving_key > largest_saving[1]:
+                largest_saving = (saving, saving_key)
+                optimal = (collectible, infos)
+                orig_cost = sum(i.eval_.total_cost for i in infos.values())
+                new_total_cost = orig_cost - raw_saving
+            continue
+
+        if optimal is None:
+            return None, None, None
+        else:
+            return optimal[0], optimal[1], new_total_cost
 
     @staticmethod
     def _get_collectible_saving(ranges: _Ranges) -> Expr:
@@ -1292,7 +1319,7 @@ class _Optimizer:
             2 * sum_size * ext_size, ext_size, -sum_size
         )
 
-    def _collect(self, terms, collect_infos: _CollectInfos):
+    def _collect(self, terms, collect_infos: _CollectInfos, new_cost):
         """Collect the given collectible factor.
 
         This function will mutate the given terms list.  Set one of the
@@ -1329,13 +1356,15 @@ class _Optimizer:
 
         for k, v in collect_infos.items():
             if k == new_term_idx:
-                terms[k] = self._form_collected(terms[k], v, new_ref)
+                terms[k] = self._form_collected(terms[k], v, new_ref, new_cost)
             else:
                 terms[k] = None
 
         return new_term_idx
 
-    def _form_collected(self, term, info: _CollectInfo, new_ref) -> Expr:
+    def _form_collected(
+            self, term, info: _CollectInfo, new_ref, new_cost
+    ) -> Expr:
         """Form new sum term with some factors collected based on a term.
         """
 
@@ -1356,6 +1385,7 @@ class _Optimizer:
         new_node = _Prod(base, orig_exts, eval_.sums, coeff, [
             collected_factor, interm
         ])
+        new_node.total_cost = new_cost
         new_node.evals = [new_node]
 
         self._interms[base] = new_node
