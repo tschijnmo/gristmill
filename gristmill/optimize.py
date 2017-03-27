@@ -1479,12 +1479,22 @@ class _Optimizer:
                 )
                 total_cost_key = get_cost_key(total_cost)
 
-                if optimal_cost is None or optimal_cost[0] > total_cost_key:
+                if_new_optimal = (
+                    optimal_cost is None or optimal_cost[0] > total_cost_key
+                )
+                if if_new_optimal:
                     optimal_cost = (total_cost_key, total_cost)
-                    evals.clear()
+                    if self._strategy != Strategy.SEARCHED:
+                        evals.clear()
 
-                if_add_eval = (
-                    optimal_cost is None or total_cost_key <= optimal_cost[0]
+                # New optimal is always added.
+                if_add_eval = if_new_optimal or (
+                    (
+                        self._strategy == Strategy.BEST and
+                        total_cost_key == optimal_cost[0]
+                    ) or (
+                        self._strategy == Strategy.SEARCHED
+                    )
                 )
                 if if_add_eval:
                     new_eval = self._form_prod_eval(
