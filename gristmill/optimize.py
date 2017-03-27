@@ -1,6 +1,7 @@
 """Optimizer for the contraction computations."""
 
 import collections
+import enum
 import heapq
 import itertools
 import typing
@@ -19,6 +20,34 @@ from .utils import get_cost_key, add_costs, get_total_size, DSF
 #  The public driver
 #  -----------------
 #
+
+
+class Strategy(enum.Enum):
+    """The optimization strategy for tensor contractions.
+
+    This enumeration type gives possible options for the optimization strategy
+    for tensor contractions.  Supported values includes,
+
+    ``GREEDY``
+        The contraction will be optimized greedily.  This should only be used
+        for large inputs where the other strategies cannot finish within a
+        reasonable time.  **(Not implemented yet)**
+
+    ``BEST``
+        The global minimum of each tensor contraction will be found by the
+        advanced algorithm in gristmill.  And only the optimal contraction(s)
+        will be kept for the summation optimization.
+
+    ``SEARCHED``
+        The same strategy as ``BEST`` will be attempted for the optimization of
+        contractions.  But all evaluations searched in the optimization process
+        will be kept and considered in subsequent summation optimizations.
+
+    """
+
+    GREEDY = 0
+    BEST = 1
+    SEARCHED = 2
 
 
 def optimize(
