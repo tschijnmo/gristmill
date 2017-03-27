@@ -1412,16 +1412,20 @@ class _Optimizer:
                     + parts[1].node.total_cost
                 )
                 total_cost_key = get_cost_key(total_cost)
+
                 if optimal_cost is None or optimal_cost[0] > total_cost_key:
                     optimal_cost = (total_cost_key, total_cost)
                     evals.clear()
-                    evals.append(self._form_prod_eval(
+
+                if_add_eval = (
+                    optimal_cost is None or total_cost_key <= optimal_cost[0]
+                )
+                if if_add_eval:
+                    new_eval = self._form_prod_eval(
                         prod_node, broken_sums, parts
-                    ))
-                elif optimal_cost[0] == total_cost_key:
-                    evals.append(self._form_prod_eval(
-                        prod_node, broken_sums, parts
-                    ))
+                    )
+                    new_eval.total_cost = total_cost
+                    evals.append(new_eval)
 
                 continue
 
