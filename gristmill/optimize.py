@@ -671,7 +671,7 @@ class _Optimizer:
                     # modest to justify the additional memory consumption.
                     repl_lhs = base[tuple(
                         _WILD_FACTORY[i] for i, _ in enumerate(exts)
-                    )]
+                    )] if len(exts) > 0 else base
                     repl_rhs = proc_amp(terms[0].amp.xreplace(
                         {v[0]: _WILD_FACTORY[i] for i, v in enumerate(exts)}
                     ))
