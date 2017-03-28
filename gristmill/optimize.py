@@ -31,7 +31,7 @@ class Strategy(enum.Enum):
     ``GREEDY``
         The contraction will be optimized greedily.  This should only be used
         for large inputs where the other strategies cannot finish within a
-        reasonable time.  **(Not implemented yet)**
+        reasonable time.
 
     ``BEST``
         The global minimum of each tensor contraction will be found by the
@@ -43,11 +43,17 @@ class Strategy(enum.Enum):
         contractions.  But all evaluations searched in the optimization process
         will be kept and considered in subsequent summation optimizations.
 
+    ``ALL``
+        All possible contraction sequences will be considered for all
+        contractions.  This can be extremely slow.  But it might be helpful for
+        manageable problems.
+
     """
 
     GREEDY = 0
     BEST = 1
     SEARCHED = 2
+    ALL = 3
 
 
 def optimize(
@@ -1458,16 +1464,24 @@ class _Optimizer:
             )
             return
 
+        strategy = self._strategy
         evals = prod_node.evals
         optimal_cost = None
         for final_cost, broken_sums, parts_gen in self._gen_factor_parts(
                 prod_node
         ):
-            if_break = (
-                optimal_cost is not None
-                and get_cost_key(final_cost) > optimal_cost[0]
-            )
-            if if_break:
+            def need_break():
+                """If we need to break the current loop."""
+                if strategy == Strategy.GREEDY:
+                    return True
+                elif strategy == Strategy.BEST or strategy == Strategy.SEARCHED:
+                    return get_cost_key(final_cost) > optimal_cost[0]
+                elif strategy == Strategy.ALL:
+                    return False
+                else:
+                    assert False
+
+            if (optimal_cost is not None) and need_break():
                 break
             # Else
 
@@ -1491,19 +1505,18 @@ class _Optimizer:
                 )
                 if if_new_optimal:
                     optimal_cost = (total_cost_key, total_cost)
-                    if self._strategy != Strategy.SEARCHED:
+                    if self._strategy == Strategy.BEST:
                         evals.clear()
 
                 # New optimal is always added.
-                if_add_eval = if_new_optimal or (
-                    (
-                        self._strategy == Strategy.BEST and
-                        total_cost_key == optimal_cost[0]
-                    ) or (
-                        self._strategy == Strategy.SEARCHED
-                    )
-                )
-                if if_add_eval:
+                def need_add_eval():
+                    """If the current evaluation need to be added."""
+                    if self._strategy == Strategy.BEST:
+                        return total_cost_key == optimal_cost[0]
+                    else:
+                        return True
+
+                if if_new_optimal or need_add_eval():
                     new_eval = self._form_prod_eval(
                         prod_node, broken_sums, parts
                     )
