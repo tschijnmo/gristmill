@@ -2,9 +2,9 @@
 
 import pytest
 from drudge import PartHoleDrudge
-from sympy import IndexedBase
+from sympy import IndexedBase, Symbol, Rational
 
-from gristmill import optimize, verify_eval_seq
+from gristmill import optimize, verify_eval_seq, Strategy, get_flop_cost
 
 
 @pytest.fixture(scope='module')
@@ -75,3 +75,42 @@ def test_ccsd_singles_terms(parthole_drudge):
 
     assert verify_eval_seq(eval_seq, targets)
     assert len(eval_seq) == 4
+
+
+def test_ccsd_energy(parthole_drudge):
+    """Test discovery of effective T in CCSD energy equation.
+
+    The purpose of this test is the capability of using locally non-optimal
+    contractions in the final summation optimization.  The equation is not CCSD
+    energy equation exactly.
+    """
+
+    dr = parthole_drudge
+    p = dr.names
+
+    a, b = p.V_dumms[:2]
+    i, j = p.O_dumms[:2]
+    u = dr.two_body
+    t = IndexedBase('t')
+
+    energy = dr.define_einst(
+        Symbol('e'),
+        u[i, j, a, b] * t[a, b, i, j] * Rational(1, 2)
+        + u[i, j, a, b] * t[a, i] * t[b, j]
+    )
+    targets = [energy]
+
+    searched_eval_seq = optimize(targets, substs={p.nv: p.no * 10})
+
+    assert verify_eval_seq(searched_eval_seq, targets)
+    assert len(searched_eval_seq) == 2
+    searched_cost = get_flop_cost(searched_eval_seq)
+
+    best_eval_seq = optimize(
+        targets, substs={p.nv: p.no * 10}, strategy=Strategy.BEST
+    )
+    assert verify_eval_seq(best_eval_seq, targets)
+    assert len(best_eval_seq) == 2
+    best_cost = get_flop_cost(best_eval_seq)
+
+    assert (best_cost - searched_cost).xreplace({p.no: 1, p.nv: 10}) > 0
