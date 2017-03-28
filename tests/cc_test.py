@@ -155,3 +155,57 @@ def test_ccsd_doubles(parthole_drudge):
     best_cost = get_flop_cost(best_eval_seq)
 
     assert (best_cost - all_cost).xreplace({p.no: 1, p.nv: 10}) > 0
+
+
+def test_ccsd_doubles_a_terms(parthole_drudge):
+    r"""Test optimization of the a tau term in CCSD doubles equation.
+
+    This test is for the optimization of the
+
+    .. math::
+
+        a^{kl}_{ij} \tau^{ab}{kl}
+
+    in Equation (8) of GE Scuseria and HF Schaefer: J Chem Phys 90 (7) 1989.
+
+    This is a case for which we cannot currently handle well even with the
+    slowest method.  So here only the correctness from greedy optimization is
+    tested.
+    """
+
+    dr = parthole_drudge
+    p = dr.names
+
+    a, b, c, d = p.V_dumms[:4]
+    i, j, k, l = p.O_dumms[:4]
+    u = dr.two_body
+    t = IndexedBase('t')
+    dr.set_dbbar_base(t, 2)
+
+    tau = dr.define_einst(
+        IndexedBase('tau')[a, b, i, j],
+        Rational(1, 2) * t[a, b, i, j] + t[a, i] * t[b, j]
+    )
+
+    a_i = dr.define_einst(
+        IndexedBase('ai')[k, l, i, j], u[i, c, k, l] * t[c, j]
+    )
+
+    a_ = dr.define(
+        IndexedBase('a')[k, l, i, j],
+        u[k, l, i, j] +
+        a_i[k, l, i, j] - a_i[k, l, j, i]
+        + u[k, l, c, d] * tau[c, d, i, j]
+    )
+
+    tensor = dr.define_einst(
+        IndexedBase('r')[a, b, i, j],
+        a_[k, l, i, j] * tau[a, b, k, l]
+    )
+    targets = [tensor]
+
+    eval_seq = optimize(
+        targets, substs={p.nv: p.no * 10}, strategy=Strategy.GREEDY
+    )
+
+    assert verify_eval_seq(eval_seq, targets)
