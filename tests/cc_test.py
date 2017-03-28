@@ -114,3 +114,44 @@ def test_ccsd_energy(parthole_drudge):
     best_cost = get_flop_cost(best_eval_seq)
 
     assert (best_cost - searched_cost).xreplace({p.no: 1, p.nv: 10}) > 0
+
+
+def test_ccsd_doubles(parthole_drudge):
+    """Test discovery of effective T in CCSD doubles equation.
+
+    The purpose of this test is similar to the CCSD energy test.  Just here the
+    more complexity about the external indices necessitates using ``ALL``
+    strategy for optimization.
+    """
+
+    dr = parthole_drudge
+    p = dr.names
+
+    a, b, c, d = p.V_dumms[:4]
+    i, j = p.O_dumms[:2]
+    u = dr.two_body
+    t = IndexedBase('t')
+    dr.set_dbbar_base(t, 2)
+
+    tensor = dr.define_einst(
+        IndexedBase('r')[a, b, i, j],
+        t[c, d, i, j] * u[a, b, c, d] + u[a, b, c, d] * t[c, i] * t[d, j]
+    )
+    targets = [tensor]
+
+    all_eval_seq = optimize(
+        targets, substs={p.nv: p.no * 10}, strategy=Strategy.ALL
+    )
+
+    assert verify_eval_seq(all_eval_seq, targets)
+    assert len(all_eval_seq) == 2
+    all_cost = get_flop_cost(all_eval_seq)
+
+    best_eval_seq = optimize(
+        targets, substs={p.nv: p.no * 10}, strategy=Strategy.BEST
+    )
+    assert verify_eval_seq(best_eval_seq, targets)
+    assert len(best_eval_seq) == 2
+    best_cost = get_flop_cost(best_eval_seq)
+
+    assert (best_cost - all_cost).xreplace({p.no: 1, p.nv: 10}) > 0
