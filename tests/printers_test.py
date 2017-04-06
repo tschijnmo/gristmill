@@ -9,7 +9,7 @@ from drudge import Drudge, Range
 from sympy import Symbol, IndexedBase, symbols
 from sympy.printing.python import PythonPrinter
 
-from gristmill import BasePrinter, FortranPrinter, EinsumPrinter
+from gristmill import BasePrinter, FortranPrinter, EinsumPrinter, mangle_base
 
 
 @pytest.fixture(scope='module')
@@ -62,12 +62,10 @@ def test_base_printer_ctx(simple_drudge, colourful_tensor):
     p = dr.names
     tensor = colourful_tensor
 
-    def proc_indexed(ctx):
-        """Process indexed names by mangling the base name."""
-        ctx.base = ctx.base + str(len(ctx.indices))
-        return
-
-    printer = BasePrinter(PythonPrinter(), proc_indexed)
+    # Process indexed names by mangling the base name.
+    printer = BasePrinter(PythonPrinter(), mangle_base(
+        lambda base, indices: base + str(len(indices))
+    ))
     ctx = printer.transl(tensor)
 
     def check_range(ctx, index):
