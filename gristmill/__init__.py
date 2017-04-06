@@ -5,7 +5,7 @@ Public names are going to be imported here.
 
 from .generate import (
     BasePrinter, ImperativeCodePrinter, CCodePrinter, FortranPrinter,
-    EinsumPrinter
+    EinsumPrinter, mangle_base
 )
 from .optimize import optimize, verify_eval_seq, Strategy
 from .utils import get_flop_cost
@@ -18,6 +18,7 @@ __all__ = [
     'verify_eval_seq',
     'get_flop_cost',
     'BasePrinter',
+    'mangle_base',
     'ImperativeCodePrinter',
     'CCodePrinter',
     'FortranPrinter',
