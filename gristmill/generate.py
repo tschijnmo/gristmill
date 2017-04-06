@@ -1,5 +1,6 @@
 """Generate source code from optimized computations."""
 
+import functools
 import textwrap
 import types
 import typing
@@ -278,6 +279,27 @@ class BasePrinter:
         return self._scal_printer.doprint(expr)
 
 
+def mangle_base(func):
+    """Mangle the base names in the indexed nodes in template context.
+
+    A function taking the printed string for an indexed base and a list of its
+    indices, as described in :py:meth:`BasePrinter.transl`, to return a new
+    mangled base name can be given to get a function call-back compatible with
+    the ``indexed_proc_cb`` argument of :py:meth:`BasePrinter.__init__`
+    constructor.
+
+    This function can also be used as a function decorator.
+    """
+
+    @functools.wraps(func)
+    def _mangle_base(node):
+        """Mangle the base name according to user-given mangling function."""
+        node.base = func(node.base, node.indices)
+        return
+
+    return _mangle_base
+
+
 #
 # The imperative code printers
 # ----------------------------
@@ -428,7 +450,7 @@ class CPrinter(ImperativeCodePrinter):
             CCodePrinter(),
             lambda base, indices: ''.join([base] + [
                 '[{}]'.format(i.index) for i in indices
-                ]),
+            ]),
             line_cont='\\', stmt_end=';',
             add_filters={
                 'form_loop_beg': _form_c_loop_beg,
