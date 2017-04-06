@@ -36,7 +36,8 @@ class BasePrinter:
         indexed_proc_cb
             It is going to be called with context nodes with ``base`` and
             ``indices`` (in both the root and for each indexed factors, as
-            described in :py:meth:`transl`) to do additional processing.
+            described in :py:meth:`transl`) to do additional processing.  For
+            most tasks, :py:func:`mangle_base` can be helpful.
 
         """
 

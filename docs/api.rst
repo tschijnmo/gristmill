@@ -35,6 +35,8 @@ Code generation
     :members:
     :special-members:
 
+.. autofunction:: mangle_base
+
 .. autoclass:: ImperativeCodePrinter
     :members:
     :special-members:
