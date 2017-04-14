@@ -91,10 +91,10 @@ def optimize(
 
     substs = {} if substs is None else substs
 
-    if simplify:
-        computs = [i.simplify() for i in computs]
-    else:
-        computs = list(computs)
+    computs = [
+        i.simplify() if simplify else i.reset_dumms()
+        for i in computs
+    ]
 
     if not isinstance(strategy, Strategy):
         raise TypeError('Invalid optimization strategy', strategy)
@@ -292,8 +292,8 @@ class _Optimizer:
 
         # Form pre-grist, basically everything is set except the dummy variables
         # for external indices and summations.
-        pre_grist = [
-            self._form_pre_grist(comput, substs) for comput in computs
+        self._grist = [
+            self._form_grist(comput, substs) for comput in computs
         ]
 
         # Finalize grist formation by resetting the dummies.
@@ -302,11 +302,9 @@ class _Optimizer:
             for k, v in self._input_ranges.items()
         }
 
-        self._grist = [self._reset_dumms(grain) for grain in pre_grist]
-
         return
 
-    def _form_pre_grist(self, comput, substs):
+    def _form_grist(self, comput, substs):
         """Form grist from a given computation.
         """
 
@@ -404,26 +402,6 @@ class _Optimizer:
             )
 
         return expr
-
-    def _reset_dumms(self, grain):
-        """Reset the dummies in a grain."""
-
-        exts, ext_substs, dummbegs = Term.reset_sums(
-            grain.exts, self._dumms, excl=self._excl
-        )
-        terms = []
-        for term in grain.terms:
-            sums, curr_substs, _ = Term.reset_sums(
-                term.sums, self._dumms,
-                dummbegs=dict(dummbegs), excl=self._excl
-            )
-            curr_substs.update(ext_substs)
-            terms.append(term.map(
-                lambda x: x.xreplace(curr_substs), sums=sums
-            ))
-            continue
-
-        return _Grain(base=grain.base, exts=exts, terms=terms)
 
     #
     # Optimization result post-processing.
