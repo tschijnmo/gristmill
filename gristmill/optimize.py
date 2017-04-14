@@ -7,7 +7,7 @@ import itertools
 import typing
 import warnings
 
-from drudge import TensorDef, prod_, Term, Range
+from drudge import TensorDef, prod_, Term, Range, sum_
 from sympy import (
     Integer, Symbol, Expr, IndexedBase, Mul, Indexed, sympify, primitive, Wild
 )
@@ -449,6 +449,8 @@ class _Optimizer:
 
         for i in refs:
             _, ref = self._parse_interm_ref(i)
+            if ref is None:
+                continue  # Leaf.
             dep = ref.base if isinstance(ref, Indexed) else ref
             dep_node = self._interms[dep]
             dep_node.n_refs += 1
@@ -539,6 +541,10 @@ class _Optimizer:
         for term in sum_terms:
 
             coeff, ref = self._parse_interm_ref(term)
+            if ref is None:
+                terms.append(Term((), term, ()))
+                # No dependency for pure scalars.
+                continue
 
             # Sum term are guaranteed to be formed from references to products,
             # never directly written in terms of input.
@@ -578,6 +584,10 @@ class _Optimizer:
 
         for sum_term in sum_terms:
             coeff, ref = self._parse_interm_ref(sum_term)
+            if ref is None:
+                res.append(sum_term)
+                continue
+
             node = self._interms[
                 ref.base if isinstance(ref, Indexed) else ref
             ]
@@ -829,16 +839,21 @@ class _Optimizer:
         instance in a term in an summation node, is very rigid.
         """
 
+        coeff = _UNITY
+        ref = None
         if isinstance(sum_term, Mul):
             args = sum_term.args
-            assert len(args) == 2
-            if self._is_interm_ref(args[1]):
-                return args
-            else:
-                assert self._is_interm_ref(args[0])
-                return args[1], args[0]
         else:
-            return _UNITY, sum_term
+            args = [sum_term]
+
+        for i in args:
+            if self._is_interm_ref(i):
+                assert ref is None
+                ref = i
+            else:
+                coeff *= i
+
+        return coeff, ref
 
     def _is_interm_ref(self, expr: Expr):
         """Test if an expression is a reference to an intermediate."""
@@ -1020,12 +1035,19 @@ class _Optimizer:
         No processing is done in this method.
         """
         sum_terms = []
+        plain_scalars = []
         for term in terms:
             sums = term.sums
             factors, coeff = term.amp_factors
-            interm_ref, _ = self._form_prod_interm(exts, sums, factors)
-            sum_terms.append(interm_ref * coeff)
+            if len(factors) == 0:
+                plain_scalars.append(coeff)
+            else:
+                interm_ref, _ = self._form_prod_interm(exts, sums, factors)
+                sum_terms.append(interm_ref * coeff)
             continue
+
+        if len(plain_scalars) > 0:
+            sum_terms.append(sum_(plain_scalars))
 
         return _Sum(base, exts, sum_terms)
 
@@ -1098,9 +1120,13 @@ class _Optimizer:
             lambda: collections.defaultdict(lambda: 0)
         )
 
+        plain_scalars = []
         for term in sum_node.sum_terms:
             coeff, ref = self._parse_interm_ref(term)
-            if isinstance(ref, Symbol):
+            if ref is None:
+                plain_scalars.append(coeff)
+                continue
+            elif isinstance(ref, Symbol):
                 base = ref
                 indices = ()
             elif isinstance(ref, Indexed):
@@ -1115,7 +1141,7 @@ class _Optimizer:
         # Intermediate referenced only once goes to the result directly and wait
         # to be factored, others wait to be pulled and do not participate in
         # factorization.
-        res_terms = []
+        res_terms = plain_scalars
         res_collectible_idxes = []
         # Indices, coeffs tuple -> base, coeff
         pull_info = collections.defaultdict(list)
@@ -1181,9 +1207,11 @@ class _Optimizer:
         Collectibles are going to be yielded as key and infos pairs.
         """
 
-        coeff, ref = self._parse_interm_ref(term)
-
         res = []  # type: typing.List[typing.Tuple[_Collectible, _CollectInfo]]
+
+        coeff, ref = self._parse_interm_ref(term)
+        if ref is None:
+            return res
 
         if coeff != 1 and coeff != -1:
             # TODO: Add attempt to collect the coefficient.
