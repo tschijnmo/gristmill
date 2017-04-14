@@ -670,7 +670,7 @@ class _Optimizer:
 
             res.append(TensorDef(
                 final_base, exts, self._drudge.create_tensor(terms)
-            ))
+            ).reset_dumms())
             continue
 
         return res
