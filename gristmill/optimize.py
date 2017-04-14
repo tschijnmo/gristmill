@@ -1825,11 +1825,12 @@ def verify_eval_seq(
         continue
 
     for i, j in zip(substed_eval_seq[-n_res:], res):
-        if i.lhs != j.lhs:
+        ref = j.simplify()
+        if i.lhs != ref.lhs:
             raise ValueError(
-                'Unequal left-hand sides', i.lhs, 'with', j.lhs, 'for', j
+                'Unequal left-hand sides', i.lhs, 'with', ref.lhs
             )
-        diff = (i.rhs - j.rhs).simplify()
+        diff = (i.rhs - ref.rhs).simplify()
         if diff != 0:
             raise ValueError(
                 'Unequal definition for ', j.lhs, j
