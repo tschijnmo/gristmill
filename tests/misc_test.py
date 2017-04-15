@@ -1,4 +1,4 @@
-"""Test optimization of trivial tensors."""
+"""Test optimization of different special kinds of tensors."""
 
 from drudge import Drudge
 from sympy import symbols
