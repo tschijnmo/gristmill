@@ -897,8 +897,9 @@ class _Optimizer:
         res = []
         for i in node.sum_terms:
             coeff, ref = self._parse_interm_ref(i.xreplace(substs))
-            term = self._get_def(ref)[0].scale(coeff)
-            res.append(term)
+            res.append(
+                self._get_def(ref)[0].scale(coeff) if ref is not None else coeff
+            )
 
         return res
 
