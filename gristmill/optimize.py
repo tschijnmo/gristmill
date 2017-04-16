@@ -1037,9 +1037,10 @@ class _Optimizer:
         """
         sum_terms = []
         plain_scalars = []
+        ext_symbs = {i for i, _ in exts}
         for term in terms:
             sums = term.sums
-            factors, coeff = term.amp_factors
+            factors, coeff = term.get_amp_factors(ext_symbs)
             if len(factors) == 0:
                 plain_scalars.append(coeff)
             else:
