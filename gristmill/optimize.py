@@ -1026,9 +1026,10 @@ class _Optimizer:
             self._interms[base] = node
             self._optimize(node)
 
-        return coeff * base[tuple(
-            i for i, _ in canon_exts
-        )] if isinstance(base, IndexedBase) else base, self._interms[base]
+        return coeff * (
+            base[tuple(i for i, _ in canon_exts)]
+            if isinstance(base, IndexedBase) else base
+        ), self._interms[base]
 
     def _form_sum_from_terms(self, base, exts, terms):
         """Form a summation node for given the terms.
