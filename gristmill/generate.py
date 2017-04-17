@@ -420,7 +420,7 @@ class ImperativeCodePrinter(BasePrinter):
             factors.extend(term_entry.other_factors)
 
             parts = [' * '.join(factors)]
-            if term_entry.denominator != 1:
+            if term_entry.denominator != '1':
                 parts.extend(['/', term_entry.denominator])
 
             term_entry.amp = ' '.join(parts)
