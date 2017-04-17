@@ -43,3 +43,29 @@ def test_conjugation_optimization(spark_ctx):
     )]
     eval_seq = optimize(targets)
     assert verify_eval_seq(eval_seq, targets)
+
+
+def test_optimization_handles_coeffcients(spark_ctx):
+    """Test optimization of scalar intermediates scaled by coefficients.
+
+    This test comes from PoST theory.  It tests the optimization of tensor
+    evaluations with scalar intermediates scaled by a factor.
+    """
+
+    dr = Drudge(spark_ctx)
+
+    n = symbols('n')
+    r = Range('r', 0, n)
+    a, b = symbols('a b')
+    dr.set_dumms(r, [a, b])
+    dr.add_default_resolver(r)
+
+    r = IndexedBase('r')
+    eps = IndexedBase('epsilon')
+    t = IndexedBase('t')
+
+    targets = [dr.define(r[a, b], dr.sum(
+        2 * eps[a] * t[a, b]
+    ) - 2 * eps[b] * t[a, b])]
+    eval_seq = optimize(targets)
+    assert verify_eval_seq(eval_seq, targets)
