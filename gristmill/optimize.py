@@ -228,8 +228,8 @@ class _Prod(_EvalNode):
 
     def __repr__(self):
         """Form a representation string for the node."""
-        return '_Prod(base={}, exts={}, coeff={}, factors={})'.format(
-            repr(self.base), repr(self.exts),
+        return '_Prod(base={}, exts={}, sums={}, coeff={}, factors={})'.format(
+            repr(self.base), repr(self.exts), repr(self.sums),
             repr(self.coeff), repr(self.factors)
         )
 
