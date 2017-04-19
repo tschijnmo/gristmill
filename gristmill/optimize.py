@@ -1266,13 +1266,12 @@ class _Optimizer:
         assert len(factors) == 2
 
         # Each evaluation could give two collectibles.
-        involved_symbols = set.union(*[i.atoms(Symbol) for i in factors])
-        involved_exts = [i for i in exts if i[0] in involved_symbols]
         res = []
         for lr in range(2):
             factor = factors[lr]
+            other_factor = factors[0 if lr == 1 else 1]
             collectible, ranges, coeff, substs = self._get_collectible_interm(
-                involved_exts, sums, factor
+                exts, sums, factor, other_factor
             )
             res.append((collectible, _CollectInfo(
                 eval_=eval_, lr=lr,
@@ -1283,11 +1282,12 @@ class _Optimizer:
 
         return res
 
-    def _get_collectible_interm(self, exts, sums, interm_ref):
+    def _get_collectible_interm(self, exts, sums, interm_ref, other_ref):
         """Get a collectible from an intermediate reference."""
 
         terms = self._get_def(interm_ref)
         involved_symbs = interm_ref.atoms(Symbol)
+        other_symbs = other_ref.atoms(Symbol)
 
         involved_exts = []
         other_exts = []
@@ -1297,7 +1297,7 @@ class _Optimizer:
                 involved_exts.append((
                     symb, range_.replace_label((range_.label, _EXT, i))
                 ))
-            else:
+            elif symb in other_symbs:
                 other_exts.append((symb, range_))  # Undecorated.
             continue
 
