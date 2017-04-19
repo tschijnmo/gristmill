@@ -1266,11 +1266,13 @@ class _Optimizer:
         assert len(factors) == 2
 
         # Each evaluation could give two collectibles.
+        involved_symbols = set.union(*[i.atoms(Symbol) for i in factors])
+        involved_exts = [i for i in exts if i[0] in involved_symbols]
         res = []
         for lr in range(2):
             factor = factors[lr]
             collectible, ranges, coeff, substs = self._get_collectible_interm(
-                exts, sums, factor
+                involved_exts, sums, factor
             )
             res.append((collectible, _CollectInfo(
                 eval_=eval_, lr=lr,
