@@ -153,7 +153,7 @@ _Collectible = typing.Tuple[Term, ...]
 
 _CollectInfos = typing.Dict[int, _CollectInfo]
 
-_Collectibles = typing.Dict[_Collectible, _CollectInfos]
+_Collectibles = typing.Dict[typing.Tuple[_Collectible, _Ranges], _CollectInfos]
 
 _Part = collections.namedtuple('_Part', [
     'ref',
@@ -1074,7 +1074,7 @@ class _Optimizer:
 
                 # Loop over collectibles the new term can offer.
                 for i, j in self._find_collectibles(exts, term):
-                    infos = collectibles[i]
+                    infos = collectibles[i, j.ranges]
                     if idx not in infos:
                         # The same term cannot provide the same collectible
                         # twice.
@@ -1297,7 +1297,7 @@ class _Optimizer:
                 involved_exts.append((
                     symb, range_.replace_label((range_.label, _EXT, i))
                 ))
-            elif symb in other_symbs:
+            if symb in other_symbs:
                 other_exts.append((symb, range_))  # Undecorated.
             continue
 
@@ -1316,7 +1316,7 @@ class _Optimizer:
         ranges = _Ranges(
             involved_exts=self._write_in_orig_ranges(involved_exts),
             sums=self._write_in_orig_ranges(involved_sums),
-            other_exts=other_exts
+            other_exts=self._write_in_orig_ranges(other_exts)
         )
 
         new_sums = (i for i in all_sums if i[1].label[1] == _SUMMED_EXT)
@@ -1339,11 +1339,9 @@ class _Optimizer:
         optimal = None
         new_total_cost = None
         largest_saving = None
-        for collectible, infos in with_saving:
-            # Any range is sufficient for the determination of savings.
-            raw_saving = self._get_collectible_saving(
-                next(iter(infos.values())).ranges
-            )
+        for key, infos in with_saving:
+            collectible, ranges = key
+            raw_saving = self._get_collectible_saving(ranges)
             saving = raw_saving - sum(
                 i.add_cost for i in infos.values()
             )
@@ -1356,7 +1354,7 @@ class _Optimizer:
 
             if if_save and if_better:
                 largest_saving = (saving, saving_key)
-                optimal = (collectible, infos)
+                optimal = ((collectible, ranges), infos)
                 orig_cost = sum(i.eval_.total_cost for i in infos.values())
                 new_total_cost = orig_cost - raw_saving
 
