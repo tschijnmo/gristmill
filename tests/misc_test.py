@@ -69,3 +69,32 @@ def test_optimization_handles_coeffcients(spark_ctx):
     ) - 2 * eps[b] * t[a, b])]
     eval_seq = optimize(targets)
     assert verify_eval_seq(eval_seq, targets)
+
+
+def test_optimization_handles_scalar_intermediates(spark_ctx):
+    """Test optimization of scalar intermediates scaling other tensors.
+
+    This is set as a special test primarily since it would entail the same
+    collectible giving residues with different ranges.
+    """
+
+    dr = Drudge(spark_ctx)
+
+    n = symbols('n')
+    r = Range('r', 0, n)
+    a, b, c = symbols('a b c')
+    dr.set_dumms(r, [a, b, c])
+    dr.add_default_resolver(r)
+
+    u = IndexedBase('u')
+    eps = IndexedBase('epsilon')
+    t = IndexedBase('t')
+    s = IndexedBase('s')
+
+    targets = [dr.define(
+        u, (a, r), (b, r),
+        dr.sum((c, r), 8 * s[a, b] * eps[c] * t[a])
+        - 8 * s[a, b] * eps[a] * t[a]
+    )]
+    eval_seq = optimize(targets)
+    assert verify_eval_seq(eval_seq, targets)
