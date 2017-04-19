@@ -1844,7 +1844,8 @@ def verify_eval_seq(
         curr_defs = [
             defs_dict[i] for i in free_vars if i in defs_dict
         ]
-        rhs = eval_.rhs.subst_all(curr_defs, simplify=simplify)
+        exts = {i for i, _ in eval_.exts}
+        rhs = eval_.rhs.subst_all(curr_defs, simplify=simplify, excl=exts)
         new_def = TensorDef(base, eval_.exts, rhs)
         substed_eval_seq.append(new_def)
 
