@@ -86,8 +86,8 @@ class Strategy:
 
     DEFAULT = SEARCHED | SUM | COMMON
 
-    _PROD_MASK = 0b11
-    _MAX = 1 << 4
+    PROD_MASK = 0b11
+    MAX = 1 << 4
 
 
 def optimize(
@@ -130,7 +130,7 @@ def optimize(
         for i in computs
     ]
 
-    if not isinstance(strategy, int) and strategy < Strategy._MAX:
+    if not isinstance(strategy, int) and strategy < Strategy.MAX:
         raise TypeError('Invalid optimization strategy', strategy)
 
     opt = _Optimizer(
@@ -1507,7 +1507,7 @@ class _Optimizer:
             )
             return
 
-        strategy = self._strategy & Strategy._PROD_MASK
+        strategy = self._strategy & Strategy.PROD_MASK
         evals = prod_node.evals
         optimal_cost = None
         for final_cost, broken_sums, parts_gen in self._gen_factor_parts(
