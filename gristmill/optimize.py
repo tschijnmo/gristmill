@@ -1,7 +1,6 @@
 """Optimizer for the contraction computations."""
 
 import collections
-import enum
 import heapq
 import itertools
 import typing
@@ -282,11 +281,30 @@ class _Optimizer:
     This internal optimizer can only be used once for one set of input.
     """
 
+    #
+    # Public functions.
+    #
+
     def __init__(self, computs, substs, interm_fmt, strategy):
         """Initialize the optimizer."""
 
-        self._prepare_grist(computs, substs)
+        # Information to be read from the input computations.
+        self._drudge = None  # The only drudge for the inputs.
+        self._range_var = None  # The only variable for range sizes.
+        self._input_ranges = {}  # Substituted range to original range.
+        self._excl = set()  # Symbols that should not be used for dummies.
 
+        # Read, process, and verify user input.
+        self._grist = [
+            self._form_grain(comput, substs) for comput in computs
+        ]
+        assert self._drudge is not None
+        self._dumms = {
+            k: self._drudge.dumms.value[v]
+            for k, v in self._input_ranges.items()
+        }
+
+        # Other internal data preparation.
         self._interm_fmt = interm_fmt
         self._strategy = strategy
 
@@ -316,32 +334,8 @@ class _Optimizer:
     # User input pre-processing.
     #
 
-    def _prepare_grist(self, computs, substs):
-        """Prepare tensor definitions for optimization.
-        """
-
-        self._grist = []
-        self._drudge = None
-        self._range_var = None  # The only variable for range sizes.
-        self._excl = set()
-        self._input_ranges = {}  # Substituted range to original range.
-
-        # Form pre-grist, basically everything is set except the dummy variables
-        # for external indices and summations.
-        self._grist = [
-            self._form_grist(comput, substs) for comput in computs
-        ]
-
-        # Finalize grist formation by resetting the dummies.
-        self._dumms = {
-            k: self._drudge.dumms.value[v]
-            for k, v in self._input_ranges.items()
-        }
-
-        return
-
-    def _form_grist(self, comput, substs):
-        """Form grist from a given computation.
+    def _form_grain(self, comput, substs):
+        """Form grain for a given computation.
         """
 
         curr_drudge = comput.rhs.drudge
@@ -380,8 +374,8 @@ class _Optimizer:
     def _proc_sums(self, sums, substs):
         """Process a summation list.
 
-        The ranges will be replaced with substitution sizes.  Relevant members
-        of the object will also be updated.  User error will also be reported.
+        The ranges will be replaced with substituted sizes.  Relevant members of
+        the optimizer will also be updated.  User error will also be reported.
         """
 
         res = []
