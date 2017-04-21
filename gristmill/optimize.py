@@ -129,6 +129,8 @@ def optimize(
         i.simplify() if simplify else i.reset_dumms()
         for i in computs
     ]
+    if len(computs) == 0:
+        raise ValueError('No computation is given!')
 
     if not isinstance(strategy, int) and strategy < Strategy.MAX:
         raise TypeError('Invalid optimization strategy', strategy)
