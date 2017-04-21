@@ -22,11 +22,14 @@ from .utils import get_cost_key, add_costs, get_total_size, DSF
 #
 
 
-class Strategy(enum.Enum):
+class Strategy:
     """The optimization strategy for tensor contractions.
 
-    This enumeration type gives possible options for the optimization strategy
-    for tensor contractions.  Supported values includes,
+    This class holds possible options for different aspects of the optimization
+    strategy for tensor contractions.  Options for different aspects of the
+    problem should be combined by using the bitwise or ``|`` operator.
+
+    For the optimization of the single-term contractions, we have
 
     ``GREEDY``
         The contraction will be optimized greedily.  This should only be used
@@ -48,6 +51,26 @@ class Strategy(enum.Enum):
         contractions.  This can be extremely slow.  But it might be helpful for
         manageable problems.
 
+    For the summation factorization, we have
+
+    ``SUM``
+        Factorize the summations in the result.
+
+    ``NOSUM``
+        Do not factorize the summations in the result.
+
+    For the common factor optimization, we have
+
+    ``COMMON``
+        Skip computation of the same factor up to optimization of indices in
+        summations.
+
+    ``NOCOMMON``
+        Do not give special treatment for common terms in summation.
+
+    We also have the default optimization strategy as ``DEFAULT``, which will be
+    ``SEARCHED | SUM | COMMON``.
+
     """
 
     GREEDY = 0
@@ -55,10 +78,21 @@ class Strategy(enum.Enum):
     SEARCHED = 2
     ALL = 3
 
+    SUM = 1 << 2
+    NOSUM = 0
+
+    COMMON = 1 << 3
+    NOCOMMON = 0
+
+    DEFAULT = SEARCHED | SUM | COMMON
+
+    _PROD_MASK = 0b11
+    _MAX = 1 << 4
+
 
 def optimize(
         computs: typing.Iterable[TensorDef], substs=None, interm_fmt='tau^{}',
-        simplify=True, strategy=Strategy.SEARCHED
+        simplify=True, strategy=Strategy.DEFAULT
 ) -> typing.List[TensorDef]:
     """Optimize the valuation of the given tensor contractions.
 
@@ -96,7 +130,7 @@ def optimize(
         for i in computs
     ]
 
-    if not isinstance(strategy, Strategy):
+    if not isinstance(strategy, int) and strategy < Strategy._MAX:
         raise TypeError('Invalid optimization strategy', strategy)
 
     opt = _Optimizer(
@@ -1473,7 +1507,7 @@ class _Optimizer:
             )
             return
 
-        strategy = self._strategy
+        strategy = self._strategy & Strategy._PROD_MASK
         evals = prod_node.evals
         optimal_cost = None
         for final_cost, broken_sums, parts_gen in self._gen_factor_parts(
