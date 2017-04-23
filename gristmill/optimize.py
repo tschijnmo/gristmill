@@ -131,7 +131,7 @@ def optimize(
     if len(computs) == 0:
         raise ValueError('No computation is given!')
 
-    if not isinstance(strategy, int) and strategy < Strategy.MAX:
+    if not isinstance(strategy, int) or strategy >= Strategy.MAX:
         raise TypeError('Invalid optimization strategy', strategy)
 
     opt = _Optimizer(
