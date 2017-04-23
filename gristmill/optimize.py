@@ -212,13 +212,22 @@ class _EvalNode:
         self.base = base
         self.exts = exts
 
+        # For optimization.
         self.evals = []  # type: typing.List[_EvalNode]
         self.total_cost = None
+
+        # For result finalization.
         self.n_refs = 0
         self.generated = False
 
     def get_substs(self, indices):
         """Get substitutions and symbols requiring exclusion before indexing.
+
+        First resetting dummies excluding the returned symbols and then making
+        the returned substitution on each term could achieve indexing.  Since
+        the real free symbols are already gather from all inputs, the free
+        symbols are not considered here.  But they should be added for the
+        resetting.
         """
 
         substs = {}
