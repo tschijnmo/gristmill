@@ -298,15 +298,22 @@ class _Optimizer:
         """Initialize the optimizer."""
 
         # Information to be read from the input computations.
-        self._drudge = None  # The only drudge for the inputs.
-        self._range_var = None  # The only variable for range sizes.
-        self._input_ranges = {}  # Substituted range to original range.
-        self._excl = set()  # Symbols that should not be used for dummies.
+        #
+        # The only drudge for the inputs.
+        self._drudge = None
+        # The only variable for range sizes.
+        self._range_var = None
+        # Mapping from the substituted range to original range.
+        self._input_ranges = {}
+        # Symbols that should not be used for dummies.
+        self._excl = set()
 
         # Read, process, and verify user input.
         self._grist = [
             self._form_grain(comput, substs) for comput in computs
         ]
+
+        # Dummies stock in terms of the substituted range.
         assert self._drudge is not None
         self._dumms = {
             k: self._drudge.dumms.value[v]
