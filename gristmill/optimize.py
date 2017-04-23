@@ -26,7 +26,7 @@ class Strategy:
 
     This class holds possible options for different aspects of the optimization
     strategy for tensor contractions.  Options for different aspects of the
-    problem should be combined by using the bitwise or ``|`` operator.
+    problem should be combined by using the bitwise-or ``|`` operator.
 
     For the optimization of the single-term contractions, we have
 
@@ -61,7 +61,7 @@ class Strategy:
     For the common factor optimization, we have
 
     ``COMMON``
-        Skip computation of the same factor up to optimization of indices in
+        Skip computation of the same factor up to permutation of indices in
         summations.
 
     ``NOCOMMON``
