@@ -472,6 +472,8 @@ class _Optimizer:
             self._set_n_refs(node)
             continue
 
+        # Separate the intermediates and the results so that the results can be
+        # guaranteed to be at the end of the evaluation sequence.
         interms = []
         res = []
         for node in optimized:
@@ -496,18 +498,17 @@ class _Optimizer:
         eval_ = node.evals[0]
 
         if isinstance(eval_, _Prod):
-            refs = [i for i in eval_.factors if self._is_interm_ref(i)]
+            possible_refs = [i for i in eval_.factors]
         elif isinstance(eval_, _Sum):
-            refs = eval_.sum_terms
+            possible_refs = eval_.sum_terms
         else:
             assert False
 
-        for i in refs:
-            _, ref = self._parse_interm_ref(i)
+        for i in possible_refs:
+            ref = self._parse_interm_ref(i)
             if ref is None:
-                continue  # Leaf.
-            dep = ref.base if isinstance(ref, Indexed) else ref
-            dep_node = self._interms[dep]
+                continue
+            dep_node = self._interms[ref.base]
             dep_node.n_refs += 1
             self._set_n_refs(dep_node)
             continue
