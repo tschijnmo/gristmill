@@ -538,7 +538,10 @@ class _Optimizer:
         return def_
 
     def _form_def(self, node: _EvalNode):
-        """Form the final definition of an evaluation node."""
+        """Form the final definition of an evaluation node.
+
+        The dependencies will also be returned.
+        """
 
         assert len(node.evals) == 1
 
@@ -556,7 +559,10 @@ class _Optimizer:
         eval_ = node.evals[0]
         assert isinstance(eval_, _Prod)
         term, deps = self._form_prod_def_term(eval_)
-        return _Grain(base=node.base, exts=exts, terms=[term]), deps
+        return _Grain(
+            base=node.base if len(exts) == 0 else IndexedBase(node.base),
+            exts=exts, terms=[term]
+        ), deps
 
     def _form_prod_def_term(self, eval_: _Prod):
         """Form the term in the final definition of a product evaluation node.
@@ -567,16 +573,18 @@ class _Optimizer:
         deps = []
         for factor in eval_.factors:
 
-            if self._is_interm_ref(factor):
-                dep = factor.base if isinstance(factor, Indexed) else factor
-                interm = self._interms[dep]
+            ref = self._parse_interm_ref(factor)
+            if ref is not None:
+                assert ref.coeff == 1
+                interm = self._interms[ref.base]
                 if self._is_input(interm):
                     # Inline trivial reference to an input.
-                    content = self._get_def(factor)
+                    content = self._get_content(factor)
                     assert len(content) == 1
-                    amp *= content[0].amp
+                    assert len(content[0].sums) == 0
+                    amp *= content[0].amp ** ref.power
                 else:
-                    deps.append(dep)
+                    deps.append(ref.base)
                     amp *= factor
             else:
                 amp *= factor
@@ -596,16 +604,17 @@ class _Optimizer:
         self._inline_sum_terms(eval_.sum_terms, sum_terms)
         for term in sum_terms:
 
-            coeff, ref = self._parse_interm_ref(term)
+            ref = self._parse_interm_ref(term)
             if ref is None:
                 terms.append(Term((), term, ()))
                 # No dependency for pure scalars.
                 continue
 
+            assert ref.power == 1  # Higher power not possible in sum.
+
             # Sum term are guaranteed to be formed from references to products,
             # never directly written in terms of input.
-            term_base = ref.base if isinstance(ref, Indexed) else ref
-            term_node = self._interms[term_base]
+            term_node = self._interms[ref.base]
 
             if term_node.n_refs == 1 or self._is_input(term_node):
                 # Inline intermediates only used here and simple input
@@ -613,14 +622,16 @@ class _Optimizer:
 
                 eval_ = term_node.evals[0]
                 assert isinstance(eval_, _Prod)
-                indices = ref.indices if isinstance(ref, Indexed) else ()
-                term = self._index_prod(eval_, indices)[0]
+                terms = self._index_prod(eval_, ref.indices)
+                assert len(terms) == 1
+                term = terms[0]
                 factors, term_coeff = term.get_amp_factors(self._interms)
 
                 # Switch back to evaluation node for using the facilities for
                 # product nodes.
                 new_term, term_deps = self._form_prod_def_term(_Prod(
-                    term_node.base, exts, term.sums, coeff * term_coeff, factors
+                    term_node.base, exts, term.sums,
+                    ref.coeff * term_coeff, factors
                 ))
 
                 terms.append(new_term)
@@ -630,23 +641,31 @@ class _Optimizer:
                 terms.append(Term(
                     (), term, ()
                 ))
-                deps.append(term_base)
+                deps.append(ref.base)
             continue
 
-        return _Grain(base=node.base, exts=exts, terms=terms), deps
+        return _Grain(
+            base=node.base if len(exts) == 0 else IndexedBase(node.base),
+            exts=exts, terms=terms
+        ), deps
 
-    def _inline_sum_terms(self, sum_terms, res):
-        """Inline the summation terms from single-reference terms."""
+    def _inline_sum_terms(
+            self, sum_terms: typing.Sequence[Expr], res: typing.List[Expr]
+    ):
+        """Inline the summation terms from single-reference terms.
+
+        This function mutates the given result list rather than returning the
+        result to avoid repeated list creation in recursive calls.
+        """
 
         for sum_term in sum_terms:
-            coeff, ref = self._parse_interm_ref(sum_term)
+            ref = self._parse_interm_ref(sum_term)
             if ref is None:
                 res.append(sum_term)
                 continue
+            assert ref.power == 1
 
-            node = self._interms[
-                ref.base if isinstance(ref, Indexed) else ref
-            ]
+            node = self._interms[ref.base]
             assert len(node.evals) > 0
             eval_ = node.evals[0]
 
@@ -664,7 +683,7 @@ class _Optimizer:
                 proced_sum_terms = [
                     (
                         i.xreplace(substs) if substs is not None else sum_term
-                    ) * coeff for i in eval_.sum_terms
+                    ) * ref.coeff for i in eval_.sum_terms
                 ]
                 self._inline_sum_terms(proced_sum_terms, res)
                 continue
@@ -678,7 +697,7 @@ class _Optimizer:
         """Test if a product node is just a trivial reference to an input."""
         if isinstance(node, _Prod):
             return len(node.sums) == 0 and len(node.factors) == 1 and (
-                not self._is_interm_ref(node.factors[0])
+                self._parse_interm_ref(node.factors[0]) is None
             )
         else:
             return False
