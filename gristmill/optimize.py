@@ -333,7 +333,9 @@ class _Optimizer:
 
         self._next_internal_idx = 0
 
+        # From intermediate base to actual evaluation node.
         self._interms = {}
+        # From the canonical form to intermediate base.
         self._interms_canon = {}
 
         self._res = None
@@ -742,13 +744,12 @@ class _Optimizer:
     # Internal support utilities.
     #
 
-    def _get_next_internal(self, symbol=False):
-        """Get the base or symbol for the next internal intermediate.
+    def _get_next_internal(self):
+        """Get the symbol for the next internal intermediate.
         """
         idx = self._next_internal_idx
         self._next_internal_idx += 1
-        cls = Symbol if symbol else IndexedBase
-        return cls('gristmillInternalIntermediate{}'.format(idx))
+        return Symbol('gristmillInternalIntermediate{}'.format(idx))
 
     @staticmethod
     def _write_in_orig_ranges(sums):
