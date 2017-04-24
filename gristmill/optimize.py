@@ -1887,6 +1887,21 @@ def _get_canon_coeff(coeffs, preferred):
     return coeff * phase
 
 
+def _index(base, indices, strip=False) -> Expr:
+    """Index the given base with indices.
+
+    When strip is set to true, the indices are assumed to be symbol/range pairs
+    list.
+    """
+
+    if strip:
+        indices = tuple(i for i, _ in indices)
+    else:
+        indices = tuple(indices)
+
+    return base if len(indices) == 0 else IndexedBase(base)[indices]
+
+
 #
 # Optimization result verification
 # --------------------------------
