@@ -849,9 +849,7 @@ class _Optimizer:
         canon_sums = canoned.sums
         canon_orig_sums = self._write_in_orig_ranges(canon_sums)
 
-        dumm_reset, _ = canoned.map(
-            lambda x: x, sums=canon_orig_sums
-        ).reset_dumms(
+        dumm_reset, _ = canoned.map(sums=canon_orig_sums).reset_dumms(
             dumms=self._dumms, excl=self._excl
         )
 
@@ -874,7 +872,7 @@ class _Optimizer:
                 i_new += 1
             continue
 
-        return dumm_reset.map(lambda x: x, sums=tuple(itertools.chain(
+        return dumm_reset.map(sums=tuple(itertools.chain(
             term_new_sums, term_sums
         ))), tuple(canon_new_sums)
 
@@ -1063,9 +1061,7 @@ class _Optimizer:
                     node_exts = term_exts
                 else:
                     assert node_exts == term_exts
-                node_terms.append(term.map(
-                    lambda x: x, sums=term.sums[n_exts:]
-                ))
+                node_terms.append(term.map(sums=term.sums[n_exts:]))
                 continue
 
             node = self._form_sum_from_terms(base, node_exts, node_terms)
