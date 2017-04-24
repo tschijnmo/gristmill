@@ -153,6 +153,8 @@ def optimize(
 #
 # Small type definitions.
 #
+# These named tuples should be upgraded when PySpark has support for Python 3.6
+# in their stable version.
 
 
 _Grain = collections.namedtuple('_Grain', [
@@ -175,6 +177,12 @@ def _get_ref_from_interm_ref(self: _IntermRef):
 
 
 _IntermRef.ref = property(_get_ref_from_interm_ref)
+
+# Symbol/range pairs.
+#
+# This type is mostly for the convenience of annotation.
+
+_SrPairs = typing.Sequence[typing.Tuple[Symbol, Range]]
 
 #
 # The information on collecting a collectible.
