@@ -733,11 +733,14 @@ class _Optimizer:
                 )) for i in comput.terms
             ]
 
-            if base in self._interms:
+            interm_base = base if len(exts) == 0 else base.args[0]
+            if interm_base in self._interms:
 
                 if len(terms) == 1 and len(terms[0].sums) == 0:
                     # Remove shallow intermediates.  The saving might be too
                     # modest to justify the additional memory consumption.
+                    #
+                    # TODO: Move it earlier to a better place.
                     repl_lhs = base[tuple(
                         _WILD_FACTORY[i] for i, _ in enumerate(exts)
                     )] if len(exts) > 0 else base
