@@ -941,33 +941,28 @@ class _Optimizer:
             coeff=coeff, base=base, indices=indices, power=power
         )
 
-    def _get_def(self, interm_ref: Expr) -> typing.List[Term]:
-        """Get the definition of an intermediate reference.
+    def _get_content(self, interm_ref: Expr) -> typing.List[Term]:
+        """Get the content of an intermediate reference.
 
-        The intermediate reference need to be a pure intermediate reference
-        without any factor.
+        This function might be removed after the new factorization algorithm is
+        implemented.
         """
 
-        if isinstance(interm_ref, Indexed):
-            base = interm_ref.base
-            indices = interm_ref.indices
-        elif isinstance(interm_ref, Symbol):
-            base = interm_ref
-            indices = ()
-        else:
-            raise TypeError('Invalid intermediate reference', interm_ref)
+        ref = self._parse_interm_ref(interm_ref)
+        assert ref is not None
 
-        if base not in self._interms:
-            raise ValueError('Invalid intermediate base', base)
-
-        node = self._interms[base]
+        node = self._interms[ref.base]
 
         if isinstance(node, _Sum):
-            return self._index_sum(node, indices)
+            content = self._index_sum(node, ref.indices)
         elif isinstance(node, _Prod):
-            return self._index_prod(node, indices)
+            content = self._index_prod(node, ref.indices)
         else:
             assert False
+
+        return [
+            i.scale(ref.coeff) for i in self._raise_power(content, ref.power)
+        ]
 
     def _index_sum(self, node: _Sum, indices) -> typing.List[Term]:
         """Substitute the external indices in the sum node"""
@@ -976,10 +971,14 @@ class _Optimizer:
 
         res = []
         for i in node.sum_terms:
-            coeff, ref = self._parse_interm_ref(i.xreplace(substs))
-            res.append(
-                self._get_def(ref)[0].scale(coeff) if ref is not None else coeff
-            )
+            term = i.xreplace(substs)
+            ref = self._parse_interm_ref(term)
+            if ref is None:
+                res.append(term)
+            else:
+                term_def = self._get_content(term)
+                res.extend(term_def)
+            continue
 
         return res
 
@@ -988,7 +987,6 @@ class _Optimizer:
 
         substs, excl = node.get_substs(indices)
 
-        # TODO: Add handling of sum intermediate reference in factors.
         term = Term(
             node.sums, node.coeff * prod_(node.factors), ()
         ).reset_dumms(
@@ -996,6 +994,22 @@ class _Optimizer:
         )[0].map(lambda x: x.xreplace(substs))
 
         return [term]
+
+    def _raise_power(
+            self, terms: typing.Sequence[Term], exp: int
+    ) -> typing.List[Term]:
+        """Raise the sum of the given terms to the given power."""
+        curr = []  # type: typing.List[Term]
+        for _ in range(exp):
+            if len(curr) == 0:
+                curr = list(terms)
+            else:
+                # TODO: Make the multiplication more efficient.
+                curr = [i.mul_term(
+                    j, dumms=self._dumms,
+                    excl=self._excl | i.free_vars | j.free_vars
+                ) for i, j in itertools.product(curr, terms)]
+        return curr
 
     #
     # General optimization.
