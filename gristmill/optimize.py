@@ -228,7 +228,7 @@ class _EvalNode:
     """A node in the evaluation graph.
     """
 
-    def __init__(self, base, exts):
+    def __init__(self, base: Symbol, exts: _SrPairs):
         """Initialize the evaluation node.
         """
 
@@ -410,7 +410,10 @@ class _Optimizer:
 
             continue
 
-        return _Grain(base=comput.base, exts=exts, terms=terms)
+        return _Grain(
+            base=comput.base if len(exts) == 0 else comput.base.args[0],
+            exts=exts, terms=terms
+        )
 
     def _proc_sums(self, sums, substs):
         """Process a summation list.
@@ -576,8 +579,7 @@ class _Optimizer:
         assert isinstance(eval_, _Prod)
         term, deps = self._form_prod_def_term(eval_)
         return _Grain(
-            base=node.base if len(exts) == 0 else IndexedBase(node.base),
-            exts=exts, terms=[term]
+            base=node.base, exts=exts, terms=[term]
         ), deps
 
     def _form_prod_def_term(self, eval_: _Prod):
@@ -661,8 +663,7 @@ class _Optimizer:
             continue
 
         return _Grain(
-            base=node.base if len(exts) == 0 else IndexedBase(node.base),
-            exts=exts, terms=terms
+            base=node.base, exts=exts, terms=terms
         ), deps
 
     def _inline_sum_terms(
@@ -771,6 +772,9 @@ class _Optimizer:
                 substs[base] = final_base
             else:
                 final_base = base
+
+            if len(exts) > 0:
+                final_base = IndexedBase(final_base)
 
             res.append(TensorDef(
                 final_base, exts, self._drudge.create_tensor(terms)
@@ -1033,16 +1037,18 @@ class _Optimizer:
 
     def _form_node(self, grain: _Grain):
         """Form an evaluation node from a tensor definition.
+
+        This is the entry point for optimization.
         """
 
         # We assume it is fully simplified and expanded by grist preparation.
         exts = grain.exts
         terms = grain.terms
 
-        if len(terms) == 0:
-            assert False  # Should be removed by grist preparation.
-        else:
-            return self._form_sum_from_terms(grain.base, exts, terms)
+        assert len(terms) > 0
+        return self._form_sum_from_terms(
+            grain.base, exts, terms
+        )
 
     def _optimize(self, node):
         """Optimize the evaluation of the given node.
