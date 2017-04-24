@@ -161,6 +161,13 @@ _Grain = collections.namedtuple('_Grain', [
     'terms'
 ])
 
+_IntermRef = collections.namedtuple('_IntermRef', [
+    'coeff',
+    'base',
+    'indices',
+    'power'
+])
+
 #
 # The information on collecting a collectible.
 #
@@ -876,33 +883,38 @@ class _Optimizer:
             term_new_sums, term_sums
         ))), tuple(canon_new_sums)
 
-    def _parse_interm_ref(self, sum_term: Expr):
-        """Get the coefficient and pure intermediate reference in a reference.
-
-        Despite being SymPy expressions, actually intermediate reference, for
-        instance in a term in an summation node, is very rigid.
+    def _parse_interm_ref(self, expr: Expr) -> typing.Optional[_IntermRef]:
+        """Parse an expression that is possibly an intermediate reference.
         """
 
         coeff = _UNITY
-        ref = None
-        if isinstance(sum_term, Mul):
-            args = sum_term.args
+        base = None
+        indices = None
+        power = None
+
+        if isinstance(expr, Mul):
+            args = expr.args
         else:
-            args = [sum_term]
+            args = [expr]
 
         for i in args:
-            if self._is_interm_ref(i):
-                assert ref is None
-                ref = i
+            if any(j in self._interms for j in i.atoms(Symbol)):
+                assert base is None
+                ref, power = i.as_base_exp()
+                if isinstance(ref, Indexed):
+                    base = ref.base.args[0]
+                    indices = ref.indices
+                elif isinstance(ref, Symbol):
+                    base = ref
+                    indices = ()
+                else:
+                    assert False
+                assert base in self._interms
             else:
                 coeff *= i
 
-        return coeff, ref
-
-    def _is_interm_ref(self, expr: Expr):
-        """Test if an expression is a reference to an intermediate."""
-        return (isinstance(expr, Indexed) and expr.base in self._interms) or (
-            expr in self._interms
+        return None if base is None else _IntermRef(
+            coeff=coeff, base=base, indices=indices, power=power
         )
 
     def _get_def(self, interm_ref: Expr) -> typing.List[Term]:
