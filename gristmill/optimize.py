@@ -168,6 +168,14 @@ _IntermRef = collections.namedtuple('_IntermRef', [
     'power'
 ])
 
+
+def _get_ref_from_interm_ref(self: _IntermRef):
+    """Get the reference to intermediate without coefficient."""
+    return _index(self.base, self.indices) ** self.power
+
+
+_IntermRef.ref = property(_get_ref_from_interm_ref)
+
 #
 # The information on collecting a collectible.
 #
