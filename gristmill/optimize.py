@@ -804,7 +804,7 @@ class _Optimizer:
             (i, j.replace_label(j.label[0])) for i, j in sums
         )
 
-    def _canon_terms(self, new_sums, terms):
+    def _canon_terms(self, new_sums: _SrPairs, terms: typing.Iterable[Term]):
         """Form a canonical label for a list of terms.
 
         The new summation list is prepended to the summation list of all terms.
@@ -1091,7 +1091,7 @@ class _Optimizer:
         if key in self._interms_canon:
             base = self._interms_canon[key]
         else:
-            base = self._get_next_internal(n_exts == 0)
+            base = self._get_next_internal()
             self._interms_canon[key] = base
 
             key_term = key[0]
@@ -1103,11 +1103,13 @@ class _Optimizer:
             )
             self._interms[base] = interm
 
-        return coeff * base[tuple(
-            i for i, _ in canon_exts
-        )] if isinstance(base, IndexedBase) else base, self._interms[base]
+        return coeff * _index(
+            base, canon_exts, strip=True
+        ), self._interms[base]
 
-    def _form_sum_interm(self, exts, terms) -> typing.Tuple[Expr, _EvalNode]:
+    def _form_sum_interm(
+            self, exts: _SrPairs, terms: typing.Sequence[Term]
+    ) -> typing.Tuple[Expr, _EvalNode]:
         """Form a sum intermediate.
         """
 
@@ -1122,7 +1124,7 @@ class _Optimizer:
         if canon_terms in self._interms_canon:
             base = self._interms_canon[canon_terms]
         else:
-            base = self._get_next_internal(n_exts == 0)
+            base = self._get_next_internal()
             self._interms_canon[canon_terms] = base
 
             node_exts = None
@@ -1140,15 +1142,16 @@ class _Optimizer:
             self._interms[base] = node
             self._optimize(node)
 
-        return coeff * (
-            base[tuple(i for i, _ in canon_exts)]
-            if isinstance(base, IndexedBase) else base
+        return coeff * _index(
+            base, canon_exts, strip=True
         ), self._interms[base]
 
-    def _form_sum_from_terms(self, base, exts, terms):
+    def _form_sum_from_terms(
+            self, base: Symbol, exts: _SrPairs, terms: typing.Iterable[Term]
+    ):
         """Form a summation node for given the terms.
 
-        No processing is done in this method.
+        No processing is done in this method.  It just forms the node.
         """
         sum_terms = []
         plain_scalars = []
