@@ -1247,20 +1247,13 @@ class _Optimizer:
 
         plain_scalars = []
         for term in sum_node.sum_terms:
-            coeff, ref = self._parse_interm_ref(term)
+            ref = self._parse_interm_ref(term)
             if ref is None:
-                plain_scalars.append(coeff)
+                plain_scalars.append(term)
                 continue
-            elif isinstance(ref, Symbol):
-                base = ref
-                indices = ()
-            elif isinstance(ref, Indexed):
-                base = ref.base
-                indices = ref.indices
-            else:
-                assert False
+            assert ref.power == 1
 
-            interm_refs[base][indices] += coeff
+            interm_refs[ref.base][ref.indices] += ref.coeff
             continue
 
         # Intermediate referenced only once goes to the result directly and wait
@@ -1278,7 +1271,7 @@ class _Optimizer:
                 res_collectible_idxes.append(len(res_terms))
                 indices, coeff = v.popitem()
                 res_terms.append(
-                    (k[indices] if len(indices) > 0 else k) * coeff
+                    _index(k, indices) * coeff
                 )
             else:
                 # Here we use name for sorting directly, since here we cannot
@@ -1296,11 +1289,12 @@ class _Optimizer:
         # out.
         for k, v in pull_info.items():
             pivot = k[0][0]
+            assert len(pivot) > 0
             assert k[0][1] == 1
             if len(v) == 1:
                 # No need to form a new intermediate.
                 base, coeff = v[0]
-                pivot_ref = base[pivot] * coeff
+                pivot_ref = _index(base, pivot) * coeff
             else:
                 # We need to form an intermediate here.
                 interm_exts = tuple(
@@ -1309,7 +1303,7 @@ class _Optimizer:
                 pivot_ref, interm_node = self._form_sum_interm(interm_exts, [
                     term.scale(coeff)
                     for base, coeff in v
-                    for term in self._get_def(base[pivot])
+                    for term in self._get_content(_index(base, pivot))
                 ])
                 self._optimize(interm_node)
 
