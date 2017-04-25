@@ -1376,7 +1376,13 @@ class _Optimizer:
             eval_.total_cost = total_cost
 
         sums = eval_.sums
-        factors = eval_.factors
+        factors = []
+        for i in eval_.factors:
+            base, exp = i.as_base_exp()
+            for i in range(exp):
+                factors.append(base)
+            continue
+
         assert len(factors) == 2
 
         # Each evaluation could give two collectibles.
