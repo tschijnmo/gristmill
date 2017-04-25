@@ -98,3 +98,30 @@ def test_optimization_handles_scalar_intermediates(spark_ctx):
     )]
     eval_seq = optimize(targets)
     assert verify_eval_seq(eval_seq, targets)
+
+
+def test_optimization_handles_nonlinear_factors(spark_ctx):
+    """Test optimization of with nonlinear factors.
+
+    Here a factor is the square of an indexed quantity.
+    """
+
+    dr = Drudge(spark_ctx)
+
+    n = symbols('n')
+    r = Range('r', 0, n)
+    dumms = symbols('a b c d e f g h')
+    dr.set_dumms(r, dumms)
+    a, b, c, d = dumms[:4]
+    dr.add_default_resolver(r)
+
+    u = symbols('u')
+    s = IndexedBase('s')
+
+    targets = [dr.define(u, dr.sum(
+        (a, r), (b, r), (c, r), (d, r),
+        32 * s[a, c] ** 2 * s[b, d] ** 2 +
+        32 * s[a, c] * s[a, d] * s[b, c] * s[b, d]
+    ))]
+    eval_seq = optimize(targets)
+    assert verify_eval_seq(eval_seq, targets)
