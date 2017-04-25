@@ -238,7 +238,8 @@ class BasePrinter:
         return templ.render(ctx.__dict__)
 
     def _form_indices_ctx(
-            self, pairs: typing.Iterable[typing.Tuple[Expr, Range]],
+            self,
+            pairs: typing.Iterable[typing.Tuple[Expr, typing.Optional[Range]]],
             enforce=True
     ):
         """Form indices context.
