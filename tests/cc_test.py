@@ -107,7 +107,8 @@ def test_ccsd_energy(parthole_drudge):
     searched_cost = get_flop_cost(searched_eval_seq)
 
     best_eval_seq = optimize(
-        targets, substs={p.nv: p.no * 10}, strategy=Strategy.BEST
+        targets, substs={p.nv: p.no * 10},
+        strategy=Strategy.BEST | Strategy.SUM | Strategy.COMMON
     )
     assert verify_eval_seq(best_eval_seq, targets)
     assert len(best_eval_seq) == 2
@@ -140,7 +141,8 @@ def test_ccsd_doubles(parthole_drudge):
     targets = [tensor]
 
     all_eval_seq = optimize(
-        targets, substs={p.nv: p.no * 10}, strategy=Strategy.ALL
+        targets, substs={p.nv: p.no * 10},
+        strategy=Strategy.ALL | Strategy.SUM | Strategy.COMMON
     )
 
     assert verify_eval_seq(all_eval_seq, targets)
@@ -148,7 +150,8 @@ def test_ccsd_doubles(parthole_drudge):
     all_cost = get_flop_cost(all_eval_seq)
 
     best_eval_seq = optimize(
-        targets, substs={p.nv: p.no * 10}, strategy=Strategy.BEST
+        targets, substs={p.nv: p.no * 10},
+        strategy=Strategy.BEST | Strategy.SUM | Strategy.COMMON
     )
     assert verify_eval_seq(best_eval_seq, targets)
     assert len(best_eval_seq) == 2
