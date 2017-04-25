@@ -1379,9 +1379,10 @@ class _Optimizer:
         factors = []
         for i in eval_.factors:
             base, exp = i.as_base_exp()
-            for i in range(exp):
+            for j in range(exp):
                 factors.append(base)
             continue
+        eval_.factors = factors
 
         assert len(factors) == 2
 
