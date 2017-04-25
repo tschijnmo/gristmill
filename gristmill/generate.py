@@ -174,6 +174,8 @@ class BasePrinter:
             term_ctx.indexed_factors = indexed_factors
             other_factors = []
             term_ctx.other_factors = other_factors
+            other_factors_expr = []
+            term_ctx.other_factors_expr = other_factors_expr
             for factor in factors:
 
                 if isinstance(factor, Indexed):
@@ -185,6 +187,7 @@ class BasePrinter:
                     ), enforce=False)
                     indexed_factors.append(factor_ctx)
                 else:
+                    other_factors_expr.append(factor)
                     other_factors.append(self._print_scal(factor))
 
             self.proc_ctx(tensor_def, term, ctx, term_ctx)
