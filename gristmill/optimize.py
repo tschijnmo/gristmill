@@ -1260,6 +1260,22 @@ class _Optimizer:
         # to be factored, others wait to be pulled and do not participate in
         # factorization.
         res_terms = plain_scalars
+
+        if self._strategy & Strategy.COMMON > 0:
+            res_collectible_idxes = self._optimize_common_symmtrization(
+                interm_refs, exts_dict, res_terms
+            )
+        else:
+            res_collectible_idxes = self._form_interm_refs(
+                interm_refs, res_terms
+            )
+
+        return res_terms, res_collectible_idxes
+
+    def _optimize_common_symmtrization(self, interm_refs, exts_dict, res_terms):
+        """Optimize common symmetrization in the intermediate references.
+        """
+
         res_collectible_idxes = []
         # Indices, coeffs tuple -> base, coeff
         pull_info = collections.defaultdict(list)
@@ -1317,8 +1333,32 @@ class _Optimizer:
                 continue
 
             continue
+        return res_collectible_idxes
 
-        return res_terms, res_collectible_idxes
+    @staticmethod
+    def _form_interm_refs(interm_refs, res_terms):
+        """Form intermediate references directly.
+        """
+
+        res_collectible_idxes = []
+
+        for k, v in interm_refs.items():
+
+            assert len(v) > 0
+
+            # Only intermediates referenced once could participate in
+            # factorization.
+            if len(v) == 1:
+                res_collectible_idxes.append(len(res_terms))
+
+            for indices, coeff in v.items():
+                res_terms.append(
+                    _index(k, indices) * coeff
+                )
+
+            continue
+
+        return res_collectible_idxes
 
     def _find_collectibles(self, exts, term):
         """Find the collectibles from a given term.
