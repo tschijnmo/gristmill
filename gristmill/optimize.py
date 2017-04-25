@@ -1678,13 +1678,13 @@ class _Optimizer:
                 )
                 if if_new_optimal:
                     optimal_cost = (total_cost_key, total_cost)
-                    if self._strategy == Strategy.BEST:
+                    if strategy == Strategy.BEST:
                         evals.clear()
 
                 # New optimal is always added.
                 def need_add_eval():
                     """If the current evaluation need to be added."""
-                    if self._strategy == Strategy.BEST:
+                    if strategy == Strategy.BEST:
                         return total_cost_key == optimal_cost[0]
                     else:
                         return True
