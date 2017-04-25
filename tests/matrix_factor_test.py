@@ -3,7 +3,7 @@
 from drudge import Range, Drudge
 from sympy import symbols, IndexedBase, Symbol
 
-from gristmill import optimize, verify_eval_seq, get_flop_cost
+from gristmill import optimize, verify_eval_seq, get_flop_cost, Strategy
 
 
 def test_matrix_factorization(spark_ctx):
@@ -108,3 +108,9 @@ def test_matrix_factorization(spark_ctx):
     assert leading_cost == 4 * n ** 3
     cost = get_flop_cost(res, ignore_consts=False)
     assert cost == 4 * n ** 3 + 2 * n ** 2
+
+    # Test disabling summation optimization.
+    res = optimize(targets, strategy=Strategy.BEST)
+    assert verify_eval_seq(res, targets, simplify=True)
+    new_cost = get_flop_cost(res, ignore_consts=False)
+    assert new_cost - cost != 0
