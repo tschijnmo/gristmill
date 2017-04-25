@@ -206,7 +206,7 @@ def test_einsum_printer(simple_drudge):
     v = IndexedBase('v')
 
     tensor = dr.define_einst(
-        x[a, b], u[b, a] - 2 * u[a, c] * v[c, b] / 3
+        x[a, b], u[b, a] ** 2 - 2 * u[a, c] * v[c, b] / 3
     )
 
     printer = EinsumPrinter()
@@ -226,12 +226,12 @@ _EINSUM_DRIVER_CODE = """
 from numpy import einsum, array
 from numpy import linalg
 
-u = array([[1, 2], [3, 4]])
-v = array([[1, 0], [0, 1]])
+u = array([[1.0, 2], [3, 4]])
+v = array([[1.0, 0], [0, 1]])
 
 {code}
 
-expected = array([[ 0.33333333,  1.66666667], [ 0.0,  1.33333333]])
+expected = (u ** 2).transpose() - (2.0 / 3) * u @ v
 global diff
 diff = linalg.norm(x - expected)
 
