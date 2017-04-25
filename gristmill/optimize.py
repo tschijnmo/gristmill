@@ -1328,19 +1328,17 @@ class _Optimizer:
 
         res = []  # type: typing.List[typing.Tuple[_Collectible, _CollectInfo]]
 
-        coeff, ref = self._parse_interm_ref(term)
+        ref = self._parse_interm_ref(term)
         if ref is None:
             return res
 
-        if coeff != 1 and coeff != -1:
+        if ref.coeff != 1 and ref.coeff != -1:
             # TODO: Add attempt to collect the coefficient.
             #
             # This could give some minor saving.
             pass
 
-        prod_node = self._interms[
-            ref.base if isinstance(ref, Indexed) else ref
-        ]
+        prod_node = self._interms[ref.base]
         self._optimize(prod_node)
 
         if len(prod_node.factors) > 1:
@@ -1349,7 +1347,7 @@ class _Optimizer:
 
             for eval_i in prod_node.evals:
                 res.extend(self._find_collectibles_eval(
-                    exts, ref, eval_i, prod_node.total_cost
+                    exts, ref.ref, eval_i, prod_node.total_cost
                 ))
                 continue
 
@@ -1401,7 +1399,7 @@ class _Optimizer:
     def _get_collectible_interm(self, exts, sums, interm_ref, other_ref):
         """Get a collectible from an intermediate reference."""
 
-        terms = self._get_def(interm_ref)
+        terms = self._get_content(interm_ref)
         involved_symbs = interm_ref.atoms(Symbol)
         other_symbs = other_ref.atoms(Symbol)
 
@@ -1506,12 +1504,13 @@ class _Optimizer:
         new_term_idx = min(collect_infos.keys())
         for k, v in collect_infos.items():
 
-            coeff, _ = self._parse_interm_ref(terms[k])
+            ref = self._parse_interm_ref(terms[k])
+            coeff = ref.coeff
             eval_ = v.eval_
             coeff *= eval_.coeff * v.coeff  # Three levels of coefficients.
 
             residue_terms.extend(
-                i.map(lambda x: coeff * x) for i in self._get_def(
+                i.map(lambda x: coeff * x) for i in self._get_content(
                     eval_.factors[0 if v.lr == 1 else 1].xreplace(v.substs)
                 )
             )
@@ -1545,29 +1544,24 @@ class _Optimizer:
         eval_ = info.eval_
         collected_factor = eval_.factors[info.lr].xreplace(info.substs)
 
-        interm_coeff, interm = self._parse_interm_ref(new_ref)
-        coeff = interm_coeff / info.coeff
+        ref = self._parse_interm_ref(new_ref)
+        coeff = ref.coeff / info.coeff
 
-        _, orig_ref = self._parse_interm_ref(term)
-        orig_node = self._interms[
-            orig_ref.base if isinstance(orig_ref, Indexed) else orig_ref
-        ]
+        orig_ref = self._parse_interm_ref(term)
+        orig_node = self._interms[orig_ref.base]
         orig_exts = orig_node.exts
 
-        base = self._get_next_internal(len(orig_exts) == 0)
+        base = self._get_next_internal()
 
         new_node = _Prod(base, orig_exts, eval_.sums, coeff, [
-            collected_factor, interm
+            collected_factor, ref.ref
         ])
         new_node.total_cost = new_cost
         new_node.evals = [new_node]
 
         self._interms[base] = new_node
 
-        return (
-            base[tuple(i for i, _ in orig_exts)]
-            if isinstance(base, IndexedBase) else base
-        )
+        return _index(base, orig_exts, strip=True)
 
     #
     # Product optimization.
@@ -1830,9 +1824,9 @@ class _Optimizer:
         coeff = _UNITY
         factors = []
         for i in parts:
-            curr_coeff, curr_ref = self._parse_interm_ref(i.ref)
-            coeff *= curr_coeff
-            factors.append(curr_ref)
+            curr_ref = self._parse_interm_ref(i.ref)
+            coeff *= curr_ref.coeff
+            factors.append(curr_ref.ref)
             continue
 
         return _Prod(
