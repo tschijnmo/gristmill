@@ -743,39 +743,43 @@ class _Optimizer:
 
         res = []
         for comput in computs:
-            base = comput.base
             exts = tuple((s, self._input_ranges[r]) for s, r in comput.exts)
+            if_scalar = len(exts) == 0
+            base = comput.base if if_scalar else IndexedBase(comput.base)
+
             terms = [
                 i.map(proc_amp, sums=tuple(
                     (s, self._input_ranges[r]) for s, r in i.sums
                 )) for i in comput.terms
             ]
 
-            interm_base = base if len(exts) == 0 else base.args[0]
-            if interm_base in self._interms:
+            # No internal intermediates should be leaked.
+            for i in terms:
+                assert not any(j in self._interms for j in i.free_vars)
+
+            if comput.base in self._interms:
 
                 if len(terms) == 1 and len(terms[0].sums) == 0:
                     # Remove shallow intermediates.  The saving might be too
                     # modest to justify the additional memory consumption.
                     #
                     # TODO: Move it earlier to a better place.
-                    repl_lhs = base[tuple(
+                    repl_lhs = base if if_scalar else base[tuple(
                         _WILD_FACTORY[i] for i, _ in enumerate(exts)
-                    )] if len(exts) > 0 else base
+                    )]
                     repl_rhs = proc_amp(terms[0].amp.xreplace(
                         {v[0]: _WILD_FACTORY[i] for i, v in enumerate(exts)}
                     ))
                     repls.append((repl_lhs, repl_rhs))
                     continue  # No new intermediate added.
 
-                final_base = type(base)(self._interm_fmt.format(next_idx))
+                final_base = (
+                    Symbol if if_scalar else IndexedBase
+                )(self._interm_fmt.format(next_idx))
                 next_idx += 1
                 substs[base] = final_base
             else:
                 final_base = base
-
-            if len(exts) > 0:
-                final_base = IndexedBase(final_base)
 
             res.append(TensorDef(
                 final_base, exts, self._drudge.create_tensor(terms)
