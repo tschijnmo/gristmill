@@ -640,17 +640,18 @@ class _Optimizer:
 
                 eval_ = term_node.evals[0]
                 assert isinstance(eval_, _Prod)
-                terms = self._index_prod(eval_, ref.indices)
-                assert len(terms) == 1
-                term = terms[0]
+                contents = self._index_prod(eval_, ref.indices)
+                assert len(contents) == 1
+                term = contents[0]
                 factors, term_coeff = term.get_amp_factors(self._interms)
 
                 # Switch back to evaluation node for using the facilities for
                 # product nodes.
-                new_term, term_deps = self._form_prod_def_term(_Prod(
+                tmp_node = _Prod(
                     term_node.base, exts, term.sums,
                     ref.coeff * term_coeff, factors
-                ))
+                )
+                new_term, term_deps = self._form_prod_def_term(tmp_node)
 
                 terms.append(new_term)
                 deps.extend(term_deps)
