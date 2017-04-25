@@ -1187,46 +1187,11 @@ class _Optimizer:
         exts = sum_node.exts
         terms, new_term_idxes = self._optimize_common_terms(sum_node)
 
-        # Now we embark upon the heroic factorization.
-        collectibles = collections.defaultdict(dict)  # type: _Collectibles
-        while True:
+        if self._strategy & Strategy.SUM > 0:
+            terms = self._factorize_sum(terms, new_term_idxes, exts)
 
-            for idx in new_term_idxes:
-                term = terms[idx]
-
-                # Loop over collectibles the new term can offer.
-                for i, j in self._find_collectibles(exts, term):
-                    infos = collectibles[i, j.ranges]
-                    if idx not in infos:
-                        # The same term cannot provide the same collectible
-                        # twice.
-                        infos[idx] = j
-                    continue
-
-                continue
-            new_term_idxes.clear()
-
-            to_collect, infos, total_cost = self._choose_collectible(
-                collectibles
-            )
-            if to_collect is None:
-                break
-
-            new_term_idx = self._collect(terms, infos, total_cost)
-            new_term_idxes.append(new_term_idx)
-
-            del collectibles[to_collect]
-            for i in infos.keys():
-                for j in collectibles.values():
-                    if i in j:
-                        del j[i]
-
-            continue
-        # End Main loop.
-
-        rem_terms = [i for i in terms if i is not None]
         sum_node.evals = [_Sum(
-            sum_node.base, sum_node.exts, rem_terms
+            sum_node.base, sum_node.exts, terms
         )]
         return
 
@@ -1359,6 +1324,48 @@ class _Optimizer:
             continue
 
         return res_collectible_idxes
+
+    def _factorize_sum(self, terms, new_term_idxes, exts):
+        """Factorize the summations greedily.
+        """
+
+        collectibles = collections.defaultdict(dict)  # type: _Collectibles
+        while True:
+
+            for idx in new_term_idxes:
+                term = terms[idx]
+
+                # Loop over collectibles the new term can offer.
+                for i, j in self._find_collectibles(exts, term):
+                    infos = collectibles[i, j.ranges]
+                    if idx not in infos:
+                        # The same term cannot provide the same collectible
+                        # twice.
+                        infos[idx] = j
+                    continue
+
+                continue
+            new_term_idxes.clear()
+
+            to_collect, infos, total_cost = self._choose_collectible(
+                collectibles
+            )
+            if to_collect is None:
+                break
+
+            new_term_idx = self._collect(terms, infos, total_cost)
+            new_term_idxes.append(new_term_idx)
+
+            del collectibles[to_collect]
+            for i in infos.keys():
+                for j in collectibles.values():
+                    if i in j:
+                        del j[i]
+
+            continue
+        # End Main loop.
+        rem_terms = [i for i in terms if i is not None]
+        return rem_terms
 
     def _find_collectibles(self, exts, term):
         """Find the collectibles from a given term.
