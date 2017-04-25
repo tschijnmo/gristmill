@@ -708,12 +708,32 @@ class EinsumPrinter(BasePrinter):
         for tensor_def in tensor_defs:
             ctx = self.transl(tensor_def)
             for i in ctx.terms:
-                if len(i.other_factors) > 0:
-                    raise ValueError(
-                        'Factors unable to be handled by einsum',
-                        i.other_factors
-                    )
+
+                for j in i.other_factors_expr:
+                    indices = []
+
+                    def _replace_indexed(*args):
+                        """Replace indexed quantity in expression."""
+                        indices.append(args[1:])
+                        return args[0].args[0]
+
+                    repled = j.replace(Indexed, _replace_indexed)
+                    if len(indices) > 1:
+                        raise ValueError(
+                            'Expression too complicated for einsum', j
+                        )
+
+                    indices = indices[0]
+                    factor_ctx = types.SimpleNamespace()
+                    factor_ctx.base = self._print_scal(repled)
+                    # Einsum does not really depend on the ranges.
+                    factor_ctx.indices = self._form_indices_ctx((
+                        (i, None) for i in indices
+                    ), enforce=False)
+                    i.indexed_factors.append(factor_ctx)
+
                 continue
+
             ctxs.append(ctx)
             continue
 
