@@ -3,7 +3,7 @@
 from drudge import Drudge, Range
 from sympy import Symbol, symbols, IndexedBase
 
-from gristmill import optimize, get_flop_cost, verify_eval_seq
+from gristmill import optimize, get_flop_cost, verify_eval_seq, Strategy
 
 
 def test_optimization_of_common_terms(spark_ctx):
@@ -73,3 +73,9 @@ def test_optimization_of_common_terms(spark_ctx):
     assert cost == 2 * n ** 3 + 2 * n ** 2
     cost = get_flop_cost(eval_seq, ignore_consts=False)
     assert cost == 2 * n ** 3 + 3 * n ** 2
+
+    # Check the result when the common symmetrization optimization is disabled.
+    eval_seq = optimize(targets, strategy=Strategy.DEFAULT & ~Strategy.COMMON)
+    verify_eval_seq(eval_seq, targets)
+    new_cost = get_flop_cost(eval_seq, ignore_consts=True)
+    assert new_cost - cost != 0
