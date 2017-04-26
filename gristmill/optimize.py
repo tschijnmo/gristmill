@@ -1258,9 +1258,8 @@ class _Optimizer:
                 # Here we use name for sorting directly, since here we cannot
                 # have general expressions hence no need to use the expensive
                 # sort_key.
-                raw = list(sorted(v.items(), key=lambda x: tuple(
-                    i.name for i in x[0]
-                )))
+                raw = list(v.items())  # Indices/coefficient pairs.
+                raw.sort(key=lambda x: [i.name for i in x[0]])
                 leading_coeff = raw[0][1]
                 pull_info[tuple(
                     (i, j / leading_coeff) for i, j in raw
@@ -1281,11 +1280,15 @@ class _Optimizer:
                 interm_exts = tuple(
                     (i, exts_dict[i]) for i in pivot
                 )
-                pivot_ref, interm_node = self._form_sum_interm(interm_exts, [
+                interm_terms = [
                     term.scale(coeff)
                     for base, coeff in v
                     for term in self._get_content(_index(base, pivot))
-                ])
+                ]
+                pivot_ref, interm_node = self._form_sum_interm(
+                    interm_exts, interm_terms
+                )
+
                 self._optimize(interm_node)
 
             for indices, coeff in k:
@@ -1293,7 +1296,7 @@ class _Optimizer:
                     i: j for i, j in zip(pivot, indices)
                 }
                 res_terms.append(
-                    pivot_ref.xreplace(substs) * coeff / k[0][1]
+                    pivot_ref.xreplace(substs) * coeff
                 )
                 continue
 
