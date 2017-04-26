@@ -1484,7 +1484,7 @@ class _Optimizer:
         ranges = _Ranges(
             involved_exts=self._write_in_orig_ranges(involved_exts),
             sums=self._write_in_orig_ranges(involved_sums),
-            other_exts=self._write_in_orig_ranges(other_exts)
+            other_exts=tuple(other_exts)
         )
 
         new_sums = (i for i in all_sums if i[1].label[1] == _SUMMED_EXT)
