@@ -1343,169 +1343,126 @@ class _Optimizer:
         """Factorize the summations greedily.
         """
 
-        collectibles = collections.defaultdict(dict)  # type: _Collectibles
+        if_keep = [True for _ in terms]
+        new_terms = []
+
+        collectibles = self._find_collectibles(terms, new_term_idxes, exts)
         while True:
 
-            for idx in new_term_idxes:
-                term = terms[idx]
-
-                # Loop over collectibles the new term can offer.
-                for i, j in self._find_collectibles(exts, term):
-                    infos = collectibles[i, j.ranges]
-                    if idx not in infos:
-                        # The same term cannot provide the same collectible
-                        # twice.
-                        infos[idx] = j
-                    continue
-
-                continue
-            new_term_idxes.clear()
-
-            to_collect, infos, total_cost = self._choose_collectible(
-                collectibles
-            )
-            if to_collect is None:
+            ranges, info = self._choose_collectible(collectibles)
+            if ranges is None:
                 break
 
-            new_term_idx = self._collect(terms, infos, total_cost)
-            new_term_idxes.append(new_term_idx)
-
-            del collectibles[to_collect]
-            for i in infos.keys():
-                for j in collectibles.values():
-                    if i in j:
-                        del j[i]
+            new_terms.append(self._form_factored_term(ranges, info))
+            self._clean_up_collected(info, collectibles, if_keep)
 
             continue
         # End Main loop.
-        rem_terms = [i for i in terms if i is not None]
-        return rem_terms
 
-    def _find_collectibles(self, exts, term):
-        """Find the collectibles from a given term.
+        new_terms.extend(i for i, j in zip(terms, if_keep) if j)
+        return new_terms
 
-        Collectibles are going to be yielded as key and infos pairs.
+    def _find_collectibles(
+            self, terms, new_term_idxes, exts
+    ) -> _Collectibles:
+        """Find all collectibles for the given terms..
         """
 
-        res = []  # type: typing.List[typing.Tuple[_Collectible, _CollectInfo]]
+        res = collections.defaultdict(_CollectGraph)  # type: _Collectibles
 
-        ref = self._parse_interm_ref(term)
-        if ref is None:
-            return res
+        for term_idx in new_term_idxes:
+            term = terms[term_idx]
+            ref = self._parse_interm_ref(term)
+            if ref is None:
+                continue
 
-        if ref.coeff != 1 and ref.coeff != -1:
-            # TODO: Add attempt to collect the coefficient.
-            #
-            # This could give some minor saving.
-            pass
+            node = self._interms[ref.base]
+            assert isinstance(node, _Prod)
 
-        prod_node = self._interms[ref.base]
-        self._optimize(prod_node)
-
-        if len(prod_node.factors) > 1:
-            # Single-factor does not offer collectible,
-            # collectible * (something + 1) is so rare in real applications.
-
-            for eval_i in prod_node.evals:
-                res.extend(self._find_collectibles_eval(
-                    exts, ref.ref, eval_i, prod_node.total_cost
-                ))
+            self._optimize(node)
+            for eval_idx, eval_ in enumerate(node.evals):
+                assert isinstance(eval_, _Prod)
+                self._find_collectibles_eval(
+                    term_idx, ref, eval_idx, eval_, exts, res
+                )
                 continue
 
         return res
 
     def _find_collectibles_eval(
-            self, exts, ref: Expr, eval_: _Prod, opt_cost
+            self, term_idx: int, ref: _IntermRef, eval_idx: int,
+            eval_: _Prod, exts: _SrPairs, res: _Collectibles
     ):
-        """Get the collectibles for a particular evaluations of a product."""
+        """Get the collectibles for a particular evaluations of a product.
+        """
 
-        # To begin, we first need to substitute the external indices in for this
-        # particular evaluation inside its ambient.
+        if len(eval_.factors) < 2:
+            return
+        assert len(eval_.factors) == 2
+
         total_cost = eval_.total_cost
-        assert total_cost is not None
+        opt_cost = self._interms[ref.base].total_cost
+        add_cost = total_cost - opt_cost
+
+        sums = tuple(sorted(
+            eval_.sums, key=lambda x: default_sort_key(x[0])
+        ))
+
         if len(eval_.exts) == 0:
-            assert isinstance(ref, Symbol)
+            assert len(ref.indices) == 0
+            coeff = ref.coeff * eval_.coeff
+            factors = eval_.factors
+            assert factors[0] != factors[1]
         else:
-            assert isinstance(ref, Indexed)
             eval_terms = self._index_prod(eval_, ref.indices)
             assert len(eval_terms) == 1
             eval_term = eval_terms[0]
             factors, coeff = eval_term.get_amp_factors(self._interms)
-            eval_ = _Prod(
-                _SUBSTED_EVAL_BASE, exts, eval_term.sums, coeff, factors
+            coeff *= ref.coeff
+
+        factor_infos = [
+            types.SimpleNamespace(expr=i) for i in factors
+        ]
+        for f_i in factor_infos:
+            content = self._get_content(f_i.expr)
+            assert len(content) == 1
+            content = content[0]
+
+            symbs = f_i.expr.atoms(Symbol)
+            f_i.exts = [
+                i for i, v in enumerate(exts) if v[0] in symbs
+            ]
+
+            # In order to really make sure, the content will be
+            # re-canonicalized
+            # based on the current ambient.
+            canon_content = content.canon().reset_dumms(
+                self._dumms, excl=self._excl | f_i.free_vars
+            )[0]
+
+            canon_coeff = canon_content.get_amp_factors(self._interms)
+            f_i.canon_content = canon_content.map(
+                lambda x: x / coeff, skip_vecs=True
             )
-            eval_.total_cost = total_cost
+            coeff *= canon_coeff
 
-        sums = eval_.sums
-        factors = []
-        for i in eval_.factors:
-            base, exp = i.as_base_exp()
-            for j in range(exp):
-                factors.append(base)
-            continue
-        eval_.factors = factors
-
-        assert len(factors) == 2
-
-        # Each evaluation could give two collectibles.
-        res = []
-        for lr in range(2):
-            factor = factors[lr]
-            other_factor = factors[0 if lr == 1 else 1]
-            collectible, ranges, coeff, substs = self._get_collectible_interm(
-                exts, sums, factor, other_factor
-            )
-            res.append((collectible, _CollectInfo(
-                eval_=eval_, lr=lr,
-                coeff=coeff, substs=substs, ranges=ranges,
-                add_cost=eval_.total_cost - opt_cost
-            )))
             continue
 
-        return res
+        factor_infos.sort(key=lambda x: (x.exts, x.canon_content.sort_key))
 
-    def _get_collectible_interm(self, exts, sums, interm_ref, other_ref):
-        """Get a collectible from an intermediate reference."""
+        l_exts, r_exts = [
+            tuple(exts[j] for j in i.exts)
+            for i in factor_infos
+        ]
+        ranges = _Ranges(l_exts=l_exts, r_exts=r_exts, sums=sums)
 
-        terms = self._get_content(interm_ref)
-        involved_symbs = interm_ref.atoms(Symbol)
-        other_symbs = other_ref.atoms(Symbol)
-
-        involved_exts = []
-        other_exts = []
-        for i, v in enumerate(exts):
-            symb, range_ = v
-            if symb in involved_symbs:
-                involved_exts.append((
-                    symb, range_.replace_label((range_.label, _EXT, i))
-                ))
-            if symb in other_symbs:
-                other_exts.append((symb, range_))  # Undecorated.
-            continue
-
-        involved_sums = []
-        for i, j in sums:
-            # Sums not involved in both should be pushed in.
-            assert i in involved_symbs
-            involved_sums.append((
-                i, j.replace_label((j.label, _SUMMED_EXT))
-            ))
-            continue
-
-        coeff, key, all_sums = self._canon_terms(
-            tuple(itertools.chain(involved_exts, involved_sums)), terms
-        )
-        ranges = _Ranges(
-            involved_exts=self._write_in_orig_ranges(involved_exts),
-            sums=self._write_in_orig_ranges(involved_sums),
-            other_exts=tuple(other_exts)
+        res[ranges].add(
+            left=factor_infos[0].canon_content,
+            right=factor_infos[1].canon_content,
+            term=term_idx, eval_=eval_idx, coeff=coeff, add_cost=add_cost
         )
 
-        new_sums = (i for i in all_sums if i[1].label[1] == _SUMMED_EXT)
-        return key, ranges, coeff, {
-            i[0]: j[0]
-            for i, j in zip(involved_sums, new_sums)
-        }
+        return
 
     def _choose_collectible(self, collectibles: _Collectibles):
         """Choose the most profitable collectible factor.
@@ -1514,122 +1471,31 @@ class _Optimizer:
         the collection will be returned.
         """
 
-        with_saving = (
-            i for i in collectibles.items() if len(i[1]) > 1
-        )
+        best_saving = None
+        best_ranges = None
+        best_collect = None
+        for ranges, graph in collectibles.items():
+            for biclique in graph.gen_bicliques(ranges):
 
-        optimal = None
-        new_total_cost = None
-        largest_saving = None
-        for key, infos in with_saving:
-            collectible, ranges = key
-            raw_saving = self._get_collectible_saving(ranges)
-            saving = raw_saving - sum(
-                i.add_cost for i in infos.values()
-            )
-            saving_key = get_cost_key(saving)
+                saving = biclique.saving
 
-            if_save = len(saving_key[1]) > 0 and saving_key[1][0] > 0
-            if_better = (
-                largest_saving is None or saving_key > largest_saving[1]
-            )
+                if best_saving is None or saving > best_saving_key:
+                    best_saving = saving
+                    best_saving_key = saving
+                    best_ranges = ranges
+                    best_collect = biclique
 
-            if if_save and if_better:
-                largest_saving = (saving, saving_key)
-                optimal = ((collectible, ranges), infos)
-                orig_cost = sum(i.eval_.total_cost for i in infos.values())
-                new_total_cost = orig_cost - raw_saving
+                continue
 
-            continue
+        return best_ranges, best_collect
 
-        if optimal is None:
-            return None, None, None
-        else:
-            return optimal[0], optimal[1], new_total_cost
+    def _form_factored_term(self, ranges, info) -> Expr:
+        """Form the factored term for the given factorization."""
+        pass
 
-    @staticmethod
-    def _get_collectible_saving(ranges: _Ranges) -> Expr:
-        """Get the saving factor for a collectible."""
-
-        other_size = get_total_size(ranges.other_exts)
-        sum_size = get_total_size(ranges.sums)
-        ext_size = get_total_size(ranges.involved_exts)
-
-        return other_size * add_costs(
-            2 * sum_size * ext_size, ext_size, -sum_size
-        )
-
-    def _collect(self, terms, collect_infos: _CollectInfos, new_cost):
-        """Collect the given collectible factor.
-
-        This function will mutate the given terms list.  Set one of the
-        collected terms to the new sum term, whose index is going to be
-        returned, with all the rest collected terms set to None.
-        """
-
-        residue_terms = []
-        residue_exts = None
-        new_term_idx = min(collect_infos.keys())
-        for k, v in collect_infos.items():
-
-            ref = self._parse_interm_ref(terms[k])
-            coeff = ref.coeff
-            eval_ = v.eval_
-            coeff *= eval_.coeff * v.coeff  # Three levels of coefficients.
-
-            residue_terms.extend(
-                i.map(lambda x: coeff * x) for i in self._get_content(
-                    eval_.factors[0 if v.lr == 1 else 1].xreplace(v.substs)
-                )
-            )
-
-            curr_exts = tuple(
-                itertools.chain(v.ranges.other_exts, v.ranges.sums),
-            )
-            if residue_exts is None:
-                residue_exts = curr_exts
-            else:
-                assert residue_exts == curr_exts
-
-            continue
-
-        new_ref, _ = self._form_sum_interm(residue_exts, residue_terms)
-
-        for k, v in collect_infos.items():
-            if k == new_term_idx:
-                terms[k] = self._form_collected(terms[k], v, new_ref, new_cost)
-            else:
-                terms[k] = None
-
-        return new_term_idx
-
-    def _form_collected(
-            self, term, info: _CollectInfo, new_ref, new_cost
-    ) -> Expr:
-        """Form new sum term with some factors collected based on a term.
-        """
-
-        eval_ = info.eval_
-        collected_factor = eval_.factors[info.lr].xreplace(info.substs)
-
-        ref = self._parse_interm_ref(new_ref)
-        coeff = ref.coeff / info.coeff
-
-        orig_ref = self._parse_interm_ref(term)
-        orig_node = self._interms[orig_ref.base]
-        orig_exts = orig_node.exts
-
-        base = self._get_next_internal()
-
-        new_node = _Prod(base, orig_exts, eval_.sums, coeff, [
-            collected_factor, ref.ref
-        ])
-        new_node.total_cost = new_cost
-        new_node.evals = [new_node]
-
-        self._interms[base] = new_node
-
-        return _index(base, orig_exts, strip=True)
+    def _clean_up_collected(self, info, collectibles, if_keep):
+        """Clean up the collectibles and the terms after factorization."""
+        pass
 
     #
     # Product optimization.
