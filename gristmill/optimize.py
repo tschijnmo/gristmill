@@ -3,16 +3,20 @@
 import collections
 import heapq
 import itertools
+import types
 import typing
 import warnings
 
 from drudge import TensorDef, prod_, Term, Range, sum_
 from sympy import (
-    Integer, Symbol, Expr, IndexedBase, Mul, Indexed, sympify, primitive, Wild
+    Integer, Symbol, Expr, IndexedBase, Mul, Indexed, sympify, primitive, Wild,
+    default_sort_key
 )
 from sympy.utilities.iterables import multiset_partitions
 
-from .utils import get_cost_key, add_costs, get_total_size, DSF
+from .utils import (
+    get_cost_key, is_positive_cost, get_total_size, DSF
+)
 
 
 #
@@ -145,16 +149,14 @@ def optimize(
 # The internal optimization engine
 # --------------------------------
 #
-# Internal small type definitions
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#
-
-
-#
-# Small type definitions.
+# Internal small type definitions and functions
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #
 # These named tuples should be upgraded when PySpark has support for Python 3.6
 # in their stable version.
+#
+# For general optimization.
+#
 
 
 _Grain = collections.namedtuple('_Grain', [
@@ -185,33 +187,423 @@ _IntermRef.ref = property(_get_ref_from_interm_ref)
 _SrPairs = typing.Sequence[typing.Tuple[Symbol, Range]]
 
 #
-# The information on collecting a collectible.
+# Internals for summation and product optimization.
 #
-# Interpretation, after the substitutions given in ``substs``, the ``lr`` factor
-# in the evaluation ``eval_`` will be turned into ``coeff`` times the actual
-# collectible.
+# Summation optimization.
 #
 
-_CollectInfo = collections.namedtuple('_CollectInfo', [
+_LEFT = 0
+_RIGHT = 1
+_OPPOS = {
+    _LEFT: _RIGHT,
+    _RIGHT: _LEFT
+}
+
+# For type annotation, actually is should be _LEFT or _RIGHT.
+_LR = int
+
+_CollectEdge = collections.namedtuple('_CollectEdge', [
+    'term',
     'eval_',
-    'lr',
     'coeff',
-    'substs',
-    'ranges',
     'add_cost'
 ])
 
-_Ranges = collections.namedtuple('_Ranges', [
-    'involved_exts',
-    'sums',
-    'other_exts'
+_CollectInfo = collections.namedtuple('_CollectInfo', [
+    'nodes',
+    'terms',
+    'saving'
 ])
 
-_Collectible = typing.Tuple[Term, ...]
+_Ranges = collections.namedtuple('_Ranges', [
+    'exts',
+    'sums'
+])
 
-_CollectInfos = typing.Dict[int, _CollectInfo]
+_CostCoeffs = collections.namedtuple('_CostCoeffs', [
+    # The final cost for contraction and make an addition of the results.
+    'final',
+    # The cost of making an addition for left and right factors.
+    'preps'
+])
 
-_Collectibles = typing.Dict[typing.Tuple[_Collectible, _Ranges], _CollectInfos]
+
+def _get_cost_coeffs(ranges: _Ranges) -> _CostCoeffs:
+    """Get the cost coefficients for the given ranges."""
+
+    ext_size = get_total_size(itertools.chain.from_iterable(
+        ranges.exts
+    ))
+
+    final = _get_prod_final_cost(
+        ext_size, get_total_size(ranges.sums)
+    ) + ext_size
+
+    preps = tuple(
+        get_total_size(itertools.chain(i, ranges.sums))
+        for i in ranges.exts
+    )
+
+    return _CostCoeffs(final=final, preps=preps)
+
+
+_Saving = collections.namedtuple('_Saving', [
+    # Total current saving.
+    'saving',
+    # Additional saving when one more left/right factor is collected.
+    'deltas'
+])
+
+
+def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
+    """Get the saving for collection.
+
+    For the given ranges, when we make a collection of the given number of left
+    factors and the given number of right factors, we have saving,
+
+    .. math::
+
+        n_l n_r C(s) e_l e_r s + (n_l n_r - 1) e_l e_r
+        - (n_l - 1) e_l s - (n_r - 1) e_r s - C(s) e_l e_r s
+
+    which equals
+
+    .. math::
+
+        (n_l n_r - 1) (C(s) e_l e_r s + e_l e_r)
+        - (n_l - 1) e_l s - (n_r - 1) e_r s
+
+    When we collect terms with :math:`n_l`, it reads,
+
+    .. math::
+
+        n_l (
+            n_r C(s) e_l e_r s + n_r e_l e_r - e_l s
+        )
+        - n_r e_r s
+        - e_l e_r + e_l s + e_r s - C(s) e_l e_r s
+
+    or symmetrically
+
+    .. math::
+
+        n_r (
+            n_l C(s) e_l e_r s + n_l e_l e_r - e_r s
+        )
+        - n_l e_l s
+        - e_l e_r + e_l s + e_r s - C(s) e_l e_r s
+
+    """
+
+    assert len(n_s) == 2
+    n_terms = prod_(n_s)
+
+    saving = (n_terms - _UNITY) * coeffs.final
+    for i, j in zip(n_s, coeffs.preps):
+        saving -= (i - _UNITY) * j
+
+    assert coeffs.preps == 2
+    deltas = tuple(
+        i * coeffs.final - j
+        for i, j in zip(reversed(n_s), coeffs.preps)
+    )
+
+    return _Saving(saving=saving, deltas=deltas)
+
+
+_NodeInfo = collections.namedtuple('_NodeInfo', [
+    'colour',
+    'node',
+    'coeff',
+    'terms',
+    'add_cost'
+])
+
+_Nodes = typing.Dict[
+    typing.Tuple[_LR, Term], _NodeInfo
+]
+
+
+class _BronKerbosch:
+    """Iterable for the maximal bicliques."""
+
+    def __init__(self, adjs, ranges):
+        """Initialize the iterator."""
+
+        # Static data during the recursion.
+        self._adjs = adjs
+        self._cost_coeffs = _get_cost_coeffs(ranges)
+
+        # Dynamic data during the recursion.
+        #
+        # Nodes and coefficients, for left and right.
+        self._curr = (
+            ([], []),
+            ([], [])
+        )
+        # The set of terms current in the biclique.
+        self._terms = set()
+        # The stack of additional costs.
+        self._add_costs = []
+
+    def __iter__(self):
+        """Iterate over the maximal bicliques."""
+
+        nodes = {
+            (i, j): self._is_expandable(i, j)
+            for i, v in enumerate(self._adjs)
+            for j in v
+        }
+
+        yield from self._expand(nodes, dict(nodes))
+
+    def _is_expandable(
+            self, colour: _LR, node: Term
+    ) -> typing.Optional[_NodeInfo]:
+        """Test if the given node can currently be expandable.
+
+        When it is expandable, the relevant node information will be
+        returned, or None will be the result.
+        """
+
+        # Cache frequently used information.
+        oppos_colour = _OPPOS[colour]
+        adjs = self._adjs[colour][node]
+        curr = self._curr
+        terms = self._terms
+
+        base_coeff = None
+        add_cost = 0
+        new_terms = set()
+
+        for i, v in enumerate(curr[oppos_colour][0]):
+            if v not in adjs:
+                return
+            edge = adjs[v]
+
+            if edge.term in terms:
+                return
+
+            coeff = edge.coeff
+            if i == 0:
+                base_coeff = coeff
+            ratio = coeff / base_coeff
+            if ratio != curr[oppos_colour][1][i]:
+                return
+
+            add_cost += edge.add_cost
+            new_terms.add(edge.term)
+
+            continue
+
+        # When we get here, it should be expandable now.
+        if base_coeff is None:
+            coeff = _UNITY
+        else:
+            assert len(curr[oppos_colour][1]) > 0
+            coeff = base_coeff / curr[oppos_colour][0]
+
+        return _NodeInfo(
+            colour=colour, node=node,
+            coeff=coeff, terms=new_terms, add_cost=add_cost
+        )
+
+    def _expand(self, subg: _Nodes, cand: _Nodes):
+        """Generate the bicliques from the current state.
+
+        This is the core of the Bron-Kerbosch algorithm.
+        """
+
+        adjs = self._adjs
+        add_costs = self._add_costs
+
+        # The current state.
+        curr = self._curr
+        cost_coeffs = self._cost_coeffs
+        terms = self._terms
+
+        # The code here are adapted from the code in NetworkX for maximal clique
+        # problem of simple general graphs.  The original code are kept as much
+        # as possible and put in comments.
+
+        n_s = tuple(
+            len(curr[i][0]) for i in [_LEFT, _RIGHT]
+        )
+        saving = _get_collect_saving(cost_coeffs, n_s)
+
+        #
+        # u = max(subg, key=lambda u: len(cand & adj[u]))
+        #
+
+        profitable_subg = (
+            k for k, v in subg.items()
+            if is_positive_cost(saving.deltas[k[0]] - v.add_cost)
+        )  # Key only.
+
+        try:
+            pivot_color, pivot_node = max(profitable_subg, key=lambda x: sum(
+                1 for i in adjs[x[0]][x[1]]
+                if (_OPPOS[x[0]], i) in cand
+            ))
+
+            pivot_oppos = _OPPOS[pivot_color]
+            pivot_adj = self._adjs[pivot_color][pivot_node]
+            to_loop = (
+                (k, v) for k, v in cand.items()
+                if k[0] != pivot_oppos or k[1] not in pivot_adj
+            )
+        except StopIteration:
+            to_loop = cand.items()
+
+        #
+        # for q in cand - adj[u]:
+        #
+        for q, node_info in to_loop:
+
+            #
+            # cand.remove(q)
+            #
+            colour, node = q
+            oppos = _OPPOS[colour]
+            assert q in cand
+            del cand[q]
+
+            #
+            # Q.append(q)
+            #
+            curr[colour][0].append(node)
+            curr[colour][1].append(node_info.coeff)
+            assert terms.isdisjoint(node_info.terms)
+            terms |= node_info.terms
+            add_costs.append(node_info.add_cost)
+
+            #
+            # adj_q = adj[q]
+            #
+            adj_q = adjs[colour][node]
+
+            #
+            # subg_q = subg & adj_q
+            #
+            # Subg computation can be a lot more complex than before.  We
+            # need to note,
+            #
+            # 1. No term already contained can be decomposed in another way
+            # in a different evaluation.
+            #
+            # 2. The coefficients need to match the existing proportion.
+            #
+            # We also have less to note in that we do not require any
+            # connectivity among nodes with the same colour.
+
+            subg_q = {
+                k: self._is_expandable(k[0], k[1])
+                for k in subg.keys() if k[0] == oppos
+            }
+            # We only require elements of subg_q to be expandable.
+            subg_q = {k: v for k, v in subg_q if v is not None}
+
+            #
+            # if not subg_q:
+            #    yield Q[:]
+            #
+            if len(subg_q) == 0:
+
+                # These cases cannot possibly give saving.
+                if_skip = any(i == 0 for i in n_s) or all(
+                    i == 1 for i in n_s
+                )
+
+                if not if_skip:
+                    # The total saving.
+                    saving = saving.saving - sum_(add_costs)
+
+                    if is_positive_cost(saving):
+                        yield _CollectInfo(
+                            nodes=tuple(i for i, _ in curr),
+                            terms=terms, saving=saving
+                        )
+
+            else:
+                #
+                # cand_q = cand & adj_q
+                #
+                cand_q = {
+                    k: self._is_expandable(k[0], k[1])
+                    for k in cand.keys() if k[0] == oppos
+                }
+                # The candidates need to give us savings.
+                cand_q = {
+                    k: v for k, v in cand_q
+                    if v is not None and
+                       is_positive_cost(cost_coeffs[k[0]] - v.add_cost)
+                }
+
+                if len(cand_q) > 0:
+                    yield from self._expand(subg_q, cand_q)
+
+            #
+            # Q.pop()
+            #
+            for i in curr[colour]:
+                i.pop()
+            terms -= node_info.terms
+            add_costs.pop()
+
+
+class _CollectGraph:
+    """Graph for the collectibles of a given range.
+
+    This data structure, and the maximal biclique generation in Bron-Kerbosch
+    style, are the core of the factorization algorithm for sums.
+    """
+
+    def __init__(self):
+        """Initialize the collectible table."""
+        self._adjs = (
+            collections.defaultdict(dict),
+            collections.defaultdict(dict)
+        )
+        self._left_adjs = self._adjs[_LEFT]
+        self._right_adjs = self._adjs[_RIGHT]
+
+    def add(self, left, right, term, eval_, coeff, add_cost):
+        """Add a new edge to the graph."""
+
+        edge = _CollectEdge(
+            term=term, eval_=eval_, coeff=coeff, add_cost=add_cost
+        )
+
+        left_adj = self._left_adjs[left]
+        assert right not in left_adj
+        left_adj[right] = edge
+
+        right_adj = self._right_adjs[right]
+        assert left not in right_adj
+        right_adj[left] = edge
+
+    def gen_bicliques(
+            self, ranges: _Ranges
+    ) -> typing.Iterable[_CollectInfo]:
+        """Generate the bicliques within the graph.
+
+        The collect information generated will contain references to internal
+        mutable data.  It is the responsibility of the caller to make proper
+        copy when it is necessary.
+        """
+
+        yield from _BronKerbosch(self._adjs, ranges)
+
+    def remove_term(self, term_idx):
+        """Remove all edges and nodes involving the given term."""
+        pass
+
+
+_Collectibles = typing.Mapping[_Ranges, _CollectGraph]
+
+#
+# For product optimization.
+#
 
 _Part = collections.namedtuple('_Part', [
     'ref',
@@ -219,9 +611,6 @@ _Part = collections.namedtuple('_Part', [
 ])
 
 
-#
-# Core evaluation DAG nodes.
-#
 def _get_prod_final_cost(exts_total_size, sums_total_size) -> Expr:
     """Compute the final cost for a pairwise product evaluation."""
 
