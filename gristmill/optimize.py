@@ -573,6 +573,10 @@ class _CollectGraph:
 
     This data structure, and the maximal biclique generation in Bron-Kerbosch
     style, are the core of the factorization algorithm for sums.
+
+    We have separate graph for different ranges.  For each range, the graph has
+    the factors as nodes, and actual evaluations with the factors as edges.
+    Internally, the graph is stored as two sparse adjacent lists.
     """
 
     def __init__(self):
@@ -604,9 +608,9 @@ class _CollectGraph:
     ) -> typing.Iterable[_Biclique]:
         """Generate the bicliques within the graph.
 
-        The collect information generated will contain references to internal
-        mutable data.  It is the responsibility of the caller to make proper
-        copy when it is necessary.
+        For performance reasons, the bicliques generated will contain references
+        to internal mutable data.  It is the responsibility of the caller to
+        make proper copy when it is necessary.
         """
 
         yield from _BronKerbosch(self._adjs, ranges)
@@ -636,9 +640,11 @@ def _get_prod_final_cost(exts_total_size, sums_total_size) -> Expr:
     else:
         return _TWO * exts_total_size * sums_total_size
 
-        #
-        # Core evaluation DAG nodes.
-        #
+
+#
+# Core evaluation DAG nodes
+# ~~~~~~~~~~~~~~~~~~~~~~~~~
+#
 
 
 class _EvalNode:
