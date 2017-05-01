@@ -15,7 +15,7 @@ from sympy import (
 from sympy.utilities.iterables import multiset_partitions
 
 from .utils import (
-    get_cost_key, is_positive_cost, get_total_size, DSF
+    get_cost_key, is_positive_cost, get_total_size, DSF, add_costs
 )
 
 
@@ -206,11 +206,11 @@ _CollectEdge = collections.namedtuple('_CollectEdge', [
     'term',
     'eval_',
     'coeff',
-    'add_cost'
+    'exc_cost'
 ])
 
 _CollectInfo = collections.namedtuple('_CollectInfo', [
-    'nodes',
+    'nodes',  # Left and right.
     'terms',
     'saving'
 ])
@@ -235,9 +235,9 @@ def _get_cost_coeffs(ranges: _Ranges) -> _CostCoeffs:
         ranges.exts
     ))
 
-    final = _get_prod_final_cost(
+    final = add_costs(_get_prod_final_cost(
         ext_size, get_total_size(ranges.sums)
-    ) + ext_size
+    ), ext_size)
 
     preps = tuple(
         get_total_size(itertools.chain(i, ranges.sums))
@@ -298,9 +298,10 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
     assert len(n_s) == 2
     n_terms = prod_(n_s)
 
-    saving = (n_terms - _UNITY) * coeffs.final
-    for i, j in zip(n_s, coeffs.preps):
-        saving -= (i - _UNITY) * j
+    saving = add_costs((n_terms - _UNITY) * coeffs.final, *[
+        -(i - _UNITY) * j
+        for i, j in zip(n_s, coeffs.preps)
+    ])
 
     assert coeffs.preps == 2
     deltas = tuple(
@@ -316,7 +317,7 @@ _NodeInfo = collections.namedtuple('_NodeInfo', [
     'node',
     'coeff',
     'terms',
-    'add_cost'
+    'exc_cost'
 ])
 
 _Nodes = typing.Dict[
@@ -343,8 +344,8 @@ class _BronKerbosch:
         )
         # The set of terms current in the biclique.
         self._terms = set()
-        # The stack of additional costs.
-        self._add_costs = []
+        # The stack of excess costs.
+        self._exc_costs = []
 
     def __iter__(self):
         """Iterate over the maximal bicliques."""
@@ -373,7 +374,7 @@ class _BronKerbosch:
         terms = self._terms
 
         base_coeff = None
-        add_cost = 0
+        exc_cost = 0
         new_terms = set()
 
         for i, v in enumerate(curr[oppos_colour][0]):
@@ -391,7 +392,7 @@ class _BronKerbosch:
             if ratio != curr[oppos_colour][1][i]:
                 return
 
-            add_cost += edge.add_cost
+            exc_cost = add_costs(exc_cost, edge.exc_cost)
             new_terms.add(edge.term)
 
             continue
@@ -405,7 +406,7 @@ class _BronKerbosch:
 
         return _NodeInfo(
             colour=colour, node=node,
-            coeff=coeff, terms=new_terms, add_cost=add_cost
+            coeff=coeff, terms=new_terms, exc_cost=exc_cost
         )
 
     def _expand(self, subg: _Nodes, cand: _Nodes):
@@ -415,7 +416,7 @@ class _BronKerbosch:
         """
 
         adjs = self._adjs
-        add_costs = self._add_costs
+        exc_costs = self._exc_costs
 
         # The current state.
         curr = self._curr
@@ -437,7 +438,7 @@ class _BronKerbosch:
 
         profitable_subg = (
             k for k, v in subg.items()
-            if is_positive_cost(saving.deltas[k[0]] - v.add_cost)
+            if is_positive_cost(saving.deltas[k[0]] - v._exc_cost)
         )  # Key only.
 
         try:
@@ -475,7 +476,7 @@ class _BronKerbosch:
             curr[colour][1].append(node_info.coeff)
             assert terms.isdisjoint(node_info.terms)
             terms |= node_info.terms
-            add_costs.append(node_info.add_cost)
+            exc_costs.append(node_info.exc_cost)
 
             #
             # adj_q = adj[q]
@@ -516,7 +517,7 @@ class _BronKerbosch:
 
                 if not if_skip:
                     # The total saving.
-                    saving = saving.saving - sum_(add_costs)
+                    saving = saving.saving - sum_(exc_costs)
 
                     if is_positive_cost(saving):
                         yield _CollectInfo(
@@ -536,7 +537,7 @@ class _BronKerbosch:
                 cand_q = {
                     k: v for k, v in cand_q
                     if v is not None and
-                       is_positive_cost(cost_coeffs[k[0]] - v.add_cost)
+                       is_positive_cost(cost_coeffs[k[0]] - v.exc_cost)
                 }
 
                 if len(cand_q) > 0:
@@ -548,7 +549,7 @@ class _BronKerbosch:
             for i in curr[colour]:
                 i.pop()
             terms -= node_info.terms
-            add_costs.pop()
+            exc_costs.pop()
 
 
 class _CollectGraph:
@@ -567,11 +568,11 @@ class _CollectGraph:
         self._left_adjs = self._adjs[_LEFT]
         self._right_adjs = self._adjs[_RIGHT]
 
-    def add(self, left, right, term, eval_, coeff, add_cost):
+    def add(self, left, right, term, eval_, coeff, exc_cost):
         """Add a new edge to the graph."""
 
         edge = _CollectEdge(
-            term=term, eval_=eval_, coeff=coeff, add_cost=add_cost
+            term=term, eval_=eval_, coeff=coeff, exc_cost=exc_cost
         )
 
         left_adj = self._left_adjs[left]
@@ -1791,7 +1792,7 @@ class _Optimizer:
 
         total_cost = eval_.total_cost
         opt_cost = self._interms[ref.base].total_cost
-        add_cost = total_cost - opt_cost
+        exc_cost = total_cost - opt_cost
 
         sums = tuple(sorted(
             eval_.sums, key=lambda x: default_sort_key(x[0])
@@ -1848,7 +1849,7 @@ class _Optimizer:
         res[ranges].add(
             left=factor_infos[0].canon_content,
             right=factor_infos[1].canon_content,
-            term=term_idx, eval_=eval_idx, coeff=coeff, add_cost=add_cost
+            term=term_idx, eval_=eval_idx, coeff=coeff, exc_cost=exc_cost
         )
 
         return
