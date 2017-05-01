@@ -585,8 +585,6 @@ class _CollectGraph:
             collections.defaultdict(dict),
             collections.defaultdict(dict)
         )
-        self._left_adjs = self._adjs[_LEFT]
-        self._right_adjs = self._adjs[_RIGHT]
 
     def add(self, left, right, term, eval_, coeff, exc_cost):
         """Add a new edge to the graph."""
@@ -595,11 +593,11 @@ class _CollectGraph:
             term=term, eval_=eval_, coeff=coeff, exc_cost=exc_cost
         )
 
-        left_adj = self._left_adjs[left]
+        left_adj = self._adjs[_LEFT][left]
         assert right not in left_adj
         left_adj[right] = edge
 
-        right_adj = self._right_adjs[right]
+        right_adj = self._adjs[_RIGHT][right]
         assert left not in right_adj
         right_adj[left] = edge
 
