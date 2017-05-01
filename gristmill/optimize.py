@@ -149,8 +149,8 @@ def optimize(
 # The internal optimization engine
 # --------------------------------
 #
-# Internal small type definitions and functions
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# General small type definitions and functions
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #
 # These named tuples should be upgraded when PySpark has support for Python 3.6
 # in their stable version.
@@ -187,7 +187,8 @@ _IntermRef.ref = property(_get_ref_from_interm_ref)
 _SrPairs = typing.Sequence[typing.Tuple[Symbol, Range]]
 
 #
-# Internals for summation and product optimization.
+# Internals for summation and product optimization
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #
 # Summation optimization.
 #
@@ -199,26 +200,45 @@ _OPPOS = {
     _RIGHT: _LEFT
 }
 
-# For type annotation, actually is should be _LEFT or _RIGHT.
+# For type annotation, actually is should be ``_LEFT | _RIGHT`` in Haskell
+# algebraic data type notation.
+
 _LR = int
 
-_CollectEdge = collections.namedtuple('_CollectEdge', [
+_Ranges = collections.namedtuple('_Ranges', [
+    'exts',
+    'sums'
+])
+
+_Node = collections.namedtuple('_Node', [
+    'colour',
+    'content'
+])
+
+_NodeInfo = collections.namedtuple('_NodeInfo', [
+    'node',
+    'coeff',
+    'terms',
+    'exc_cost'
+])
+
+_Nodes = typing.Dict[_Node, _NodeInfo]
+
+_Edge = collections.namedtuple('_Edge', [
     'term',
     'eval_',
     'coeff',
     'exc_cost'
 ])
 
-_CollectInfo = collections.namedtuple('_CollectInfo', [
+_Biclique = collections.namedtuple('_Biclique', [
     'nodes',  # Left and right.
     'terms',
-    'saving'
+    'saving'  # The **key** for the total saving.
 ])
 
-_Ranges = collections.namedtuple('_Ranges', [
-    'exts',
-    'sums'
-])
+# These coefficients cached here can make the computation of the saving of a
+# biclique easy and fast.
 
 _CostCoeffs = collections.namedtuple('_CostCoeffs', [
     # The final cost for contraction and make an addition of the results.
@@ -266,7 +286,8 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
         n_l n_r C(s) e_l e_r s + (n_l n_r - 1) e_l e_r
         - (n_l - 1) e_l s - (n_r - 1) e_r s - C(s) e_l e_r s
 
-    which equals
+    where :math:`C(s)` equals one for no summation and two for the presence of
+    summations.  It also equals
 
     .. math::
 
@@ -281,7 +302,7 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
             n_r C(s) e_l e_r s + n_r e_l e_r - e_l s
         )
         - n_r e_r s
-        - e_l e_r + e_l s + e_r s - C(s) e_l e_r s
+        + e_l s + e_r s - e_l e_r - C(s) e_l e_r s
 
     or symmetrically
 
@@ -291,38 +312,33 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
             n_l C(s) e_l e_r s + n_l e_l e_r - e_r s
         )
         - n_l e_l s
-        - e_l e_r + e_l s + e_r s - C(s) e_l e_r s
+        + e_l s + e_r s - e_l e_r - C(s) e_l e_r s
 
     """
 
     assert len(n_s) == 2
+    assert coeffs.preps == 2
+
     n_terms = prod_(n_s)
 
-    saving = add_costs((n_terms - _UNITY) * coeffs.final, *[
-        -(i - _UNITY) * j
+    saving = (n_terms - _UNITY) * coeffs.final - sum(
+        (i - _UNITY) * j
         for i, j in zip(n_s, coeffs.preps)
-    ])
-
-    assert coeffs.preps == 2
-    deltas = tuple(
-        i * coeffs.final - j
-        for i, j in zip(reversed(n_s), coeffs.preps)
     )
 
+    if all(i == 0 for i in n_s):
+        # This could allow bicliques empty in both directions to be augmented by
+        # a left or right term without excess cost.
+        #
+        # TODO: investigate the possibility of using infinity here.
+        deltas = (_UNITY, _UNITY)
+    else:
+        deltas = tuple(
+            i * coeffs.final - j
+            for i, j in zip(reversed(n_s), coeffs.preps)
+        )
+
     return _Saving(saving=saving, deltas=deltas)
-
-
-_NodeInfo = collections.namedtuple('_NodeInfo', [
-    'colour',
-    'node',
-    'coeff',
-    'terms',
-    'exc_cost'
-])
-
-_Nodes = typing.Dict[
-    typing.Tuple[_LR, Term], _NodeInfo
-]
 
 
 class _BronKerbosch:
@@ -520,7 +536,7 @@ class _BronKerbosch:
                     saving = saving.saving - sum_(exc_costs)
 
                     if is_positive_cost(saving):
-                        yield _CollectInfo(
+                        yield _Biclique(
                             nodes=tuple(i for i, _ in curr),
                             terms=terms, saving=saving
                         )
@@ -571,7 +587,7 @@ class _CollectGraph:
     def add(self, left, right, term, eval_, coeff, exc_cost):
         """Add a new edge to the graph."""
 
-        edge = _CollectEdge(
+        edge = _Edge(
             term=term, eval_=eval_, coeff=coeff, exc_cost=exc_cost
         )
 
@@ -585,7 +601,7 @@ class _CollectGraph:
 
     def gen_bicliques(
             self, ranges: _Ranges
-    ) -> typing.Iterable[_CollectInfo]:
+    ) -> typing.Iterable[_Biclique]:
         """Generate the bicliques within the graph.
 
         The collect information generated will contain references to internal
