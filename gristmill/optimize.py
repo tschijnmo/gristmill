@@ -210,19 +210,22 @@ _Ranges = collections.namedtuple('_Ranges', [
     'sums'
 ])
 
-_Node = collections.namedtuple('_Node', [
-    'colour',
-    'content'
-])
-
+# Additional information about a node when it is used to augment the current
+# biclique.
 _NodeInfo = collections.namedtuple('_NodeInfo', [
+    'colour',
     'node',
     'coeff',
     'terms',
     'exc_cost'
 ])
 
-_Nodes = typing.Dict[_Node, _NodeInfo]
+# Dictionary of the nodes that can possibly to used to augment the current
+# biclique.  To be used for variables like ``subg`` and ``cand`` in the
+# Bron-Kerbosch algorithm.
+_Nodes = typing.Dict[
+    typing.Tuple[int, Term], typing.Optional[_NodeInfo]
+]
 
 _Edge = collections.namedtuple('_Edge', [
     'term',
@@ -234,7 +237,7 @@ _Edge = collections.namedtuple('_Edge', [
 _Biclique = collections.namedtuple('_Biclique', [
     'nodes',  # Left and right.
     'terms',
-    'saving'  # The **key** for the total saving.
+    'saving'
 ])
 
 # These coefficients cached here can make the computation of the saving of a
