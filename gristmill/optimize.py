@@ -373,7 +373,9 @@ class _BronKerbosch:
 
         # All left and right nodes.
         nodes = {
-            (i, j): self._is_expandable(i, j)
+            (i, j): _NodeInfo(
+                colour=i, node=j, coeff=_UNITY, terms=set(), exc_cost=0
+            )
             for i, v in enumerate(self._adjs)
             for j in v.keys()
         }
@@ -403,6 +405,9 @@ class _BronKerbosch:
 
         When it is expandable, the relevant node information will be
         returned, or None will be the result.
+
+        THIS FUNCTION IS DEPRECATED AND PENDING REMOVAL.  Currently it is only
+        used for the sanity checking of the optimized result.
         """
 
         # Cache frequently used information.
@@ -602,25 +607,63 @@ class _BronKerbosch:
         We also have less to note in that we do not require any connectivity
         among nodes with the same colour.
 
-        The core work is done by :py:meth:`_is_expandable`.  Here all expandable
-        nodes and the profitable ones among them for the current step will be
-        returned.  The profitable nodes for the current step contains only the
-        nodes that is profitable right now.  The all expandable nodes has all
-        nodes that are valid to be augmented into the current stack.
+        Here all expandable nodes and the profitable ones among them for the
+        current step will be returned.  The profitable nodes for the current
+        step contains only the nodes that is profitable right now.  The all
+        expandable nodes has all nodes that are valid to be augmented into the
+        current stack.
         """
 
-        oppos = _OPPOS[new_colour]
-        del new_node
-        # TODO: try to reuse the previous info, rather than starting from
-        # scratch.
+        curr = self._curr
 
-        pre = {
-            k: self._is_expandable(k[0], k[1])
-            for k in nodes.keys() if k[0] == oppos
-        }
-        all_ = {
-            k: v for k, v in pre.items() if v is not None
-        }
+        all_ = {}
+        for k, v in nodes.items():
+            # The node with the same colour as the new node will not be affected
+            # by the new addition.
+            colour, node = k
+            if colour == new_colour:
+                all_[k] = v
+                continue
+
+            adj = self._adjs[colour][node]
+            if new_node not in adj:
+                continue
+            edge = adj[new_node]
+
+            assert _OPPOS[colour] == new_colour
+            oppos_curr = curr[new_colour]
+            # We have at least the new node was just added.
+            assert len(oppos_curr[0]) > 0
+            assert len(oppos_curr[1]) == len(oppos_curr[0])
+
+            leading_edge = adj[oppos_curr[0][0]]
+            ratio = edge.coeff / leading_edge.coeff
+
+            if ratio != oppos_curr[1][-1]:
+                continue
+
+            new_coeff = (
+                v.coeff if self._leading_coeff is None
+                else leading_edge.coeff / self._leading_coeff
+            )
+
+            new_terms = v.terms | edge.term
+            if not new_terms.is_disjoint(self._terms):
+                continue
+
+            new_exc_cost = v.exc_cost + edge.exc_cost
+
+            node_info = _NodeInfo(
+                colour=colour, node=node,
+                coeff=new_coeff, terms=new_terms, exc_cost=new_exc_cost
+            )
+
+            # Sanity checking, should be disabled in production.
+            assert node_info == self._is_expandable(colour, node)
+
+            all_[k] = node_info
+            continue
+
         curr = {k: v for k, v in all_ if is_positive_cost(
             saving.deltas[k[0]] - v.exc_cost
         )}
