@@ -1994,9 +1994,35 @@ class _Optimizer:
 
         return best_ranges, best_biclique
 
-    def _form_factored_term(self, ranges, info) -> Expr:
+    def _form_factored_term(
+            self, ranges: _Ranges, biclique: _Biclique
+    ) -> Expr:
         """Form the factored term for the given factorization."""
-        pass
+
+        # Form and optimize the two new summation nodes.
+        #
+        # TODO: Fix the problem with non-unity leading coefficient.
+        lr_factors = []
+        for exts_i, nodes_i in zip(ranges.exts, biclique.nodes):
+            expr, eval_node = self._form_sum_interm(exts_i, nodes_i)
+            lr_factors.append(expr)
+            self._optimize(eval_node)
+            continue
+
+        # Form the contraction node for the two new summation nodes.
+        exts = tuple(sorted(
+            set(itertools.chain.from_iterable(ranges.exts)),
+            key=lambda x: default_sort_key(x[0])
+        ))
+        expr, eval_node = self._form_prod_interm(
+            exts, ranges.sums, lr_factors
+        )
+
+        # Make phony optimization of the intermediate.
+        eval_node.total_cost = _UNITY
+        eval_node.evals = [eval_node]
+
+        return expr
 
     def _clean_up_collected(self, info, collectibles, if_keep):
         """Clean up the collectibles and the terms after factorization."""
