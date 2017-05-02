@@ -360,7 +360,7 @@ class _BronKerbosch:
             ([], []),
             ([], [])
         )
-        # The set of terms current in the biclique.
+        # The set of terms currently in the biclique.
         self._terms = set()
         # The stack of excess costs.
         self._exc_costs = []
@@ -368,13 +368,27 @@ class _BronKerbosch:
     def __iter__(self):
         """Iterate over the maximal bicliques."""
 
+        # All left and right nodes.
         nodes = {
             (i, j): self._is_expandable(i, j)
             for i, v in enumerate(self._adjs)
-            for j in v
+            for j in v.keys()
         }
 
-        yield from self._expand(nodes, dict(nodes))
+        yield from self._expand(nodes, dict(nodes), dict(nodes), dict(nodes))
+
+        # If things all goes correctly, the stack should be reverted to initial
+        # state by now.
+        for i in self._curr:
+            for j in i:
+                assert len(j) == 0
+                continue
+            continue
+
+        assert len(self._terms) == 0
+        assert len(self._exc_costs) == 0
+
+        return
 
     def _is_expandable(
             self, colour: _LR, node: Term
@@ -400,7 +414,7 @@ class _BronKerbosch:
                 return
             edge = adjs[v]
 
-            if edge.term in terms:
+            if edge.term in terms or edge.term in new_terms:
                 return
 
             coeff = edge.coeff
@@ -422,12 +436,17 @@ class _BronKerbosch:
             assert len(curr[oppos_colour][1]) > 0
             coeff = base_coeff / curr[oppos_colour][0]
 
+        # For empty stack, we always get here with base information (coeff=1,
+        # new_terms=empty, exc_cost=0).
         return _NodeInfo(
             colour=colour, node=node,
             coeff=coeff, terms=new_terms, exc_cost=exc_cost
         )
 
-    def _expand(self, subg: _Nodes, cand: _Nodes):
+    def _expand(
+            self, subg: _Nodes, curr_subg: _Nodes,
+            cand: _Nodes, curr_cand: _Nodes
+    ):
         """Generate the bicliques from the current state.
 
         This is the core of the Bron-Kerbosch algorithm.
@@ -438,29 +457,26 @@ class _BronKerbosch:
 
         # The current state.
         curr = self._curr
-        cost_coeffs = self._cost_coeffs
         terms = self._terms
 
         # The code here are adapted from the code in NetworkX for maximal clique
         # problem of simple general graphs.  The original code are kept as much
-        # as possible and put in comments.
-
-        n_s = tuple(
-            len(curr[i][0]) for i in [_LEFT, _RIGHT]
-        )
-        saving = _get_collect_saving(cost_coeffs, n_s)
+        # as possible and put in comments.  The original code on which the code
+        # is based can be found at,
+        #
+        # https://github.com/networkx/networkx/blob
+        # /48f4b5736174844c77044fae90e3e7adf1dabc10/networkx/algorithms
+        # /clique.py#L277-L299
+        #
 
         #
         # u = max(subg, key=lambda u: len(cand & adj[u]))
         #
+        # Here only nodes guaranteed to be profitable can be used as the pivot.
+        # Or the proof will not work out.
 
-        profitable_subg = (
-            k for k, v in subg.items()
-            if is_positive_cost(saving.deltas[k[0]] - v._exc_cost)
-        )  # Key only.
-
-        try:
-            pivot_color, pivot_node = max(profitable_subg, key=lambda x: sum(
+        if len(curr_subg) > 0:
+            pivot_color, pivot_node = max(curr_subg.keys(), key=lambda x: sum(
                 1 for i in adjs[x[0]][x[1]]
                 if (_OPPOS[x[0]], i) in cand
             ))
@@ -468,11 +484,12 @@ class _BronKerbosch:
             pivot_oppos = _OPPOS[pivot_color]
             pivot_adj = self._adjs[pivot_color][pivot_node]
             to_loop = (
-                (k, v) for k, v in cand.items()
+                (k, v) for k, v in curr_cand.items()
                 if k[0] != pivot_oppos or k[1] not in pivot_adj
             )
-        except StopIteration:
-            to_loop = cand.items()
+        else:
+            assert len(curr_cand) == 0
+            to_loop = curr_cand.items()
 
         #
         # for q in cand - adj[u]:
@@ -483,7 +500,6 @@ class _BronKerbosch:
             # cand.remove(q)
             #
             colour, node = q
-            oppos = _OPPOS[colour]
             assert q in cand
             del cand[q]
 
@@ -496,41 +512,25 @@ class _BronKerbosch:
             terms |= node_info.terms
             exc_costs.append(node_info.exc_cost)
 
+            ns, saving = self._count_stack()
+
             #
             # adj_q = adj[q]
-            #
-            adj_q = adjs[colour][node]
-
-            #
             # subg_q = subg & adj_q
             #
-            # Subg computation can be a lot more complex than before.  We
-            # need to note,
-            #
-            # 1. No term already contained can be decomposed in another way
-            # in a different evaluation.
-            #
-            # 2. The coefficients need to match the existing proportion.
-            #
-            # We also have less to note in that we do not require any
-            # connectivity among nodes with the same colour.
-
-            subg_q = {
-                k: self._is_expandable(k[0], k[1])
-                for k in subg.keys() if k[0] == oppos
-            }
-            # We only require elements of subg_q to be expandable.
-            subg_q = {k: v for k, v in subg_q if v is not None}
+            subg_q, curr_subg_q = self._filter_nodes(
+                subg, saving, colour, node
+            )
 
             #
             # if not subg_q:
             #    yield Q[:]
             #
-            if len(subg_q) == 0:
+            if len(curr_subg_q) == 0:
 
                 # These cases cannot possibly give saving.
-                if_skip = any(i == 0 for i in n_s) or all(
-                    i == 1 for i in n_s
+                if_skip = any(i == 0 for i in ns) or all(
+                    i == 1 for i in ns
                 )
 
                 if not if_skip:
@@ -547,19 +547,18 @@ class _BronKerbosch:
                 #
                 # cand_q = cand & adj_q
                 #
-                cand_q = {
-                    k: self._is_expandable(k[0], k[1])
-                    for k in cand.keys() if k[0] == oppos
-                }
-                # The candidates need to give us savings.
-                cand_q = {
-                    k: v for k, v in cand_q
-                    if v is not None and
-                       is_positive_cost(cost_coeffs[k[0]] - v.exc_cost)
-                }
+                cand_q, curr_cand_q = self._filter_nodes(
+                    cand, saving, colour, node
+                )
 
-                if len(cand_q) > 0:
-                    yield from self._expand(subg_q, cand_q)
+                # if cand_q:
+                #     for clique in expand(subg_q, cand_q):
+                #         yield clique
+
+                if len(curr_cand_q) > 0:
+                    yield from self._expand(
+                        subg_q, curr_subg_q, cand_q, curr_cand_q
+                    )
 
             #
             # Q.pop()
@@ -568,6 +567,60 @@ class _BronKerbosch:
                 i.pop()
             terms -= node_info.terms
             exc_costs.pop()
+
+    def _filter_nodes(
+            self, nodes: _Nodes,
+            saving: _Saving, new_colour: _LR, new_node: Term
+    ) -> typing.Tuple[_Nodes, _Nodes]:
+        """Filter the nodes for the current stack.
+
+        In the original Bron-Kerbosch algorithm, both subg and cand are filtered
+        by union with the adjacent nodes of the newly added node.  Now the
+        computation can be a lot more complex than that.  We need to note,
+
+        1. No term already contained can be decomposed in another way in a
+        different evaluation.
+
+        2. The coefficients need to match the existing proportion.
+
+        We also have less to note in that we do not require any connectivity
+        among nodes with the same colour.
+
+        The core work is done by :py:meth:`_is_expandable`.  Here all expandable
+        nodes and the profitable ones among them for the current step will be
+        returned.  The profitable nodes for the current step contains only the
+        nodes that is profitable right now.  The all expandable nodes has all
+        nodes that are valid to be augmented into the current stack.
+        """
+
+        oppos = _OPPOS[new_colour]
+        del new_node
+        # TODO: try to reuse the previous info, rather than starting from
+        # scratch.
+
+        pre = {
+            k: self._is_expandable(k[0], k[1])
+            for k in nodes.keys() if k[0] == oppos
+        }
+        all_ = {
+            k: v for k, v in pre.items() if v is not None
+        }
+        curr = {k: v for k, v in all_ if is_positive_cost(
+            saving.deltas[k[0]] - v.exc_cost
+        )}
+
+        return all_, curr
+
+    def _count_stack(self):
+        """Count the current size of the stack.
+
+        The saving will also be returned.
+        """
+        ns = tuple(
+            len(self._curr[i][0]) for i in [_LEFT, _RIGHT]
+        )
+        saving = _get_collect_saving(self._cost_coeffs, ns)
+        return ns, saving
 
 
 class _CollectGraph:
