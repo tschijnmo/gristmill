@@ -1832,12 +1832,12 @@ class _Optimizer:
         collectibles = self._find_collectibles(terms, new_term_idxes, exts)
         while True:
 
-            ranges, info = self._choose_collectible(collectibles)
+            ranges, biclique = self._choose_collectible(collectibles)
             if ranges is None:
                 break
 
-            new_terms.append(self._form_factored_term(ranges, info))
-            self._clean_up_collected(info, collectibles, if_keep)
+            new_terms.append(self._form_factored_term(ranges, biclique))
+            self._clean_up_collected(biclique, collectibles, if_keep)
 
             continue
         # End Main loop.
@@ -1970,14 +1970,11 @@ class _Optimizer:
     @staticmethod
     def _choose_collectible(collectibles: _Collectibles):
         """Choose the most profitable collectible factor.
-
-        The collectible, its infos, and the final cost of the evaluation after
-        the collection will be returned.
         """
 
         best_saving = None
         best_ranges = None
-        best_collect = None
+        best_biclique = None
         for ranges, graph in collectibles.items():
             for biclique in graph.gen_bicliques(ranges):
 
@@ -1987,7 +1984,7 @@ class _Optimizer:
                     best_saving = saving
                     best_ranges = ranges
                     # Make copy only when we need them.
-                    best_collect = _Biclique(
+                    best_biclique = _Biclique(
                         nodes=tuple(tuple(i) for i in biclique.nodes),
                         terms=frozenset(biclique.terms),
                         saving=biclique.saving
@@ -1995,7 +1992,7 @@ class _Optimizer:
 
                 continue
 
-        return best_ranges, best_collect
+        return best_ranges, best_biclique
 
     def _form_factored_term(self, ranges, info) -> Expr:
         """Form the factored term for the given factorization."""
