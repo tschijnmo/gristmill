@@ -700,7 +700,7 @@ class _CollectGraph:
         return if_empty
 
 
-_Collectibles = typing.Mapping[_Ranges, _CollectGraph]
+_Collectibles = typing.DefaultDict[_Ranges, _CollectGraph]
 
 #
 # For product optimization.
