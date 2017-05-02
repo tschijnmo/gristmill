@@ -1967,7 +1967,8 @@ class _Optimizer:
 
         return
 
-    def _choose_collectible(self, collectibles: _Collectibles):
+    @staticmethod
+    def _choose_collectible(collectibles: _Collectibles):
         """Choose the most profitable collectible factor.
 
         The collectible, its infos, and the final cost of the evaluation after
