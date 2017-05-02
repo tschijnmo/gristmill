@@ -38,6 +38,11 @@ def get_cost_key(cost: Expr):
         )
 
 
+def is_positive_cost(cost: Expr):
+    """Decide if a cost is positive."""
+    return get_cost_key(cost)[1][0] > 0
+
+
 def add_costs(*args):
     """Add the arguments as costs.
 
@@ -437,7 +442,7 @@ def wrap_line(line, breakable_regex, line_cont,
             ' ' * base_indent, v, line_cont if i != len(lines) - 1 else ''
         ])
         for i, v in enumerate(lines)
-        ]
+    ]
     return '\n'.join(decorated)
 
 
