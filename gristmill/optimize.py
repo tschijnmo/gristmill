@@ -15,7 +15,7 @@ from sympy import (
 from sympy.utilities.iterables import multiset_partitions
 
 from .utils import (
-    get_cost_key, is_positive_cost, get_total_size, DSF, add_costs
+    get_cost_key, is_positive_cost, get_total_size, DSF
 )
 
 
@@ -255,9 +255,9 @@ def _get_cost_coeffs(ranges: _Ranges) -> _CostCoeffs:
         ranges.exts
     ))
 
-    final = add_costs(_get_prod_final_cost(
+    final = _get_prod_final_cost(
         ext_size, get_total_size(ranges.sums)
-    ), ext_size)
+    ) + ext_size
 
     preps = tuple(
         get_total_size(itertools.chain(i, ranges.sums))
@@ -408,7 +408,7 @@ class _BronKerbosch:
             if ratio != curr[oppos_colour][1][i]:
                 return
 
-            exc_cost = add_costs(exc_cost, edge.exc_cost)
+            exc_cost += edge.exc_cost
             new_terms.add(edge.term)
 
             continue
