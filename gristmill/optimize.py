@@ -375,6 +375,8 @@ class _BronKerbosch:
             for j in v.keys()
         }
 
+        assert len(nodes) > 0
+
         yield from self._expand(nodes, dict(nodes), dict(nodes), dict(nodes))
 
         # If things all goes correctly, the stack should be reverted to initial
@@ -475,21 +477,20 @@ class _BronKerbosch:
         # Here only nodes guaranteed to be profitable can be used as the pivot.
         # Or the proof will not work out.
 
-        if len(curr_subg) > 0:
-            pivot_color, pivot_node = max(curr_subg.keys(), key=lambda x: sum(
-                1 for i in adjs[x[0]][x[1]]
-                if (_OPPOS[x[0]], i) in cand
-            ))
+        # Recursion is stopped earlier than here.
+        assert len(curr_subg) > 0
 
-            pivot_oppos = _OPPOS[pivot_color]
-            pivot_adj = self._adjs[pivot_color][pivot_node]
-            to_loop = (
-                (k, v) for k, v in curr_cand.items()
-                if k[0] != pivot_oppos or k[1] not in pivot_adj
-            )
-        else:
-            assert len(curr_cand) == 0
-            to_loop = curr_cand.items()
+        pivot_color, pivot_node = max(curr_subg.keys(), key=lambda x: sum(
+            1 for i in adjs[x[0]][x[1]]
+            if (_OPPOS[x[0]], i) in cand
+        ))
+
+        pivot_oppos = _OPPOS[pivot_color]
+        pivot_adj = self._adjs[pivot_color][pivot_node]
+        to_loop = (
+            (k, v) for k, v in curr_cand.items()
+            if k[0] != pivot_oppos or k[1] not in pivot_adj
+        )
 
         #
         # for q in cand - adj[u]:
