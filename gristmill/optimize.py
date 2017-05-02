@@ -1980,13 +1980,17 @@ class _Optimizer:
         for ranges, graph in collectibles.items():
             for biclique in graph.gen_bicliques(ranges):
 
-                saving = biclique.saving
+                saving = get_cost_key(biclique.saving)
 
-                if best_saving is None or saving > best_saving_key:
+                if best_saving is None or saving > best_saving:
                     best_saving = saving
-                    best_saving_key = saving
                     best_ranges = ranges
-                    best_collect = biclique
+                    # Make copy only when we need them.
+                    best_collect = _Biclique(
+                        nodes=tuple(tuple(i) for i in biclique.nodes),
+                        terms=frozenset(biclique.terms),
+                        saving=biclique.saving
+                    )
 
                 continue
 
