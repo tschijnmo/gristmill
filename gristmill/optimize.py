@@ -1891,6 +1891,8 @@ class _Optimizer:
             eval_.sums, key=lambda x: default_sort_key(x[0])
         ))
 
+        # Get the factoris and coefficients, no need to make substitution when
+        # there is no external indices.
         if len(eval_.exts) == 0:
             assert len(ref.indices) == 0
             coeff = ref.coeff * eval_.coeff
@@ -1903,35 +1905,42 @@ class _Optimizer:
             factors, coeff = eval_term.get_amp_factors(self._interms)
             coeff *= ref.coeff
 
+        excl = self._excl | {i for i, _ in exts}
+
+        # Information about the (two) factors,
+        #
+        # expr: The original expression for the factor.
+        # exts: Indices of the involved externals.
+        # canon_content: The canonicalized content for the factor.
         factor_infos = [
             types.SimpleNamespace(expr=i) for i in factors
         ]
+
         for f_i in factor_infos:
             content = self._get_content(f_i.expr)
             assert len(content) == 1
             content = content[0]
 
             symbs = f_i.expr.atoms(Symbol)
-            f_i.exts = [
+            f_i.exts = tuple(
                 i for i, v in enumerate(exts) if v[0] in symbs
-            ]
+            )  # Index only.
 
-            # In order to really make sure, the content will be
-            # re-canonicalized
+            # In order to really make sure, the content will be re-canonicalized
             # based on the current ambient.
             canon_content = content.canon().reset_dumms(
-                self._dumms, excl=self._excl | f_i.free_vars
+                self._dumms, excl=excl
             )[0]
 
-            canon_coeff = canon_content.get_amp_factors(self._interms)
+            _, canon_coeff = canon_content.get_amp_factors(self._interms)
             f_i.canon_content = canon_content.map(
-                lambda x: x / coeff, skip_vecs=True
+                lambda x: x / canon_coeff, skip_vecs=True
             )
             coeff *= canon_coeff
 
             continue
 
-        factor_infos.sort(key=lambda x: (x.exts, x.canon_content.sort_key))
+        factor_infos.sort(key=lambda x: x.exts)
 
         l_exts, r_exts = [
             tuple(exts[j] for j in i.exts)
@@ -1939,11 +1948,22 @@ class _Optimizer:
         ]
         ranges = _Ranges(l_exts=l_exts, r_exts=r_exts, sums=sums)
 
-        res[ranges].add(
-            left=factor_infos[0].canon_content,
-            right=factor_infos[1].canon_content,
-            term=term_idx, eval_=eval_idx, coeff=coeff, exc_cost=exc_cost
-        )
+        # When the left and right externals differ, the two factors have
+        # determined colour, or we need to add one of them for each colour
+        # assignment.
+        lr_factor_idxes = [(0, 1)]
+        if l_exts == r_exts:
+            lr_factor_idxes.append((1, 0))
+        lr_factors = [
+            tuple(factor_infos[j].canon_content for j in i)
+            for i in lr_factor_idxes
+        ]
+        for i in lr_factors:
+            res[ranges].add(
+                left=i[0], right=i[1],
+                term=term_idx, eval_=eval_idx, coeff=coeff, exc_cost=exc_cost
+            )
+            continue
 
         return
 
