@@ -669,13 +669,18 @@ class _CollectGraph:
 
         yield from _BronKerbosch(self._adjs, ranges)
 
-    def remove_terms(self, terms: typing.AbstractSet[int]):
-        """Remove all edges and nodes involving the given terms."""
+    def remove_terms(self, terms: typing.AbstractSet[int]) -> bool:
+        """Remove all edges and nodes involving the given terms.
+
+        If a value of True is returned, we have an empty graph after the
+        removal.
+        """
 
         new_adjs = (
             collections.defaultdict(dict),
             collections.defaultdict(dict)
         )
+        if_empty = True
 
         for old, new in zip(self._adjs, new_adjs):
             for from_node, conns in old.items():
@@ -684,11 +689,15 @@ class _CollectGraph:
                     for to_node, edge in conns.items()
                     if edge.term not in terms
                 }
-                new[from_node] = new_conns
+                if len(new_conns) > 0:
+                    if_empty = False
+                    new[from_node] = new_conns
                 continue
             continue
 
         self._adjs = new_adjs
+
+        return if_empty
 
 
 _Collectibles = typing.Mapping[_Ranges, _CollectGraph]
