@@ -10,7 +10,7 @@ import warnings
 from drudge import TensorDef, prod_, Term, Range, sum_
 from sympy import (
     Integer, Symbol, Expr, IndexedBase, Mul, Indexed, sympify, primitive, Wild,
-    default_sort_key
+    default_sort_key, oo
 )
 from sympy.utilities.iterables import multiset_partitions
 
@@ -328,10 +328,8 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
 
     if all(i == 0 for i in n_s):
         # This could allow bicliques empty in both directions to be augmented by
-        # a left or right term without excess cost.
-        #
-        # TODO: investigate the possibility of using infinity here.
-        deltas = (_UNITY, _UNITY)
+        # any left or right term.
+        deltas = (oo, oo)
     else:
         deltas = tuple(
             i * coeffs.final - j
