@@ -2033,9 +2033,26 @@ class _Optimizer:
 
         return expr
 
-    def _clean_up_collected(self, info, collectibles, if_keep):
+    @staticmethod
+    def _clean_up_collected(
+            biclique: _Biclique, collectibles: _Collectibles,
+            if_keep: typing.List[bool]
+    ):
         """Clean up the collectibles and the terms after factorization."""
-        pass
+
+        to_remove = []
+        for ranges, graph in collectibles.items():
+            if_empty = graph.remove_terms(biclique.terms)
+            if if_empty:
+                to_remove.append(ranges)
+            continue
+        for i in to_remove:
+            del collectibles[i]
+            continue
+
+        for i in biclique.terms:
+            assert if_keep[i]
+            if_keep[i] = False
 
     #
     # Product optimization.
