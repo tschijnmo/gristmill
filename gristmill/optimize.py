@@ -236,6 +236,7 @@ _Edge = collections.namedtuple('_Edge', [
 
 _Biclique = collections.namedtuple('_Biclique', [
     'nodes',  # Left and right.
+    'leading_coeff',
     'terms',
     'saving'
 ])
@@ -364,6 +365,8 @@ class _BronKerbosch:
         self._terms = set()
         # The stack of excess costs.
         self._exc_costs = []
+        # The leading coefficient.
+        self._leading_coeff = None
 
     def __iter__(self):
         """Iterate over the maximal bicliques."""
@@ -389,6 +392,7 @@ class _BronKerbosch:
 
         assert len(self._terms) == 0
         assert len(self._exc_costs) == 0
+        assert self._leading_coeff is None
 
         return
 
@@ -513,6 +517,14 @@ class _BronKerbosch:
             terms |= node_info.terms
             exc_costs.append(node_info.exc_cost)
 
+            oppos = _OPPOS[colour]
+            if len(curr[colour][0]) == 1 and len(curr[oppos][0]) > 0:
+                leading_edge = self._adjs[colour][node][
+                    curr[oppos][0][0]
+                ]
+                assert self._leading_coeff is None
+                self._leading_coeff = leading_edge.coeff
+
             ns, saving = self._count_stack()
 
             #
@@ -541,6 +553,7 @@ class _BronKerbosch:
                     if is_positive_cost(saving):
                         yield _Biclique(
                             nodes=tuple(i for i, _ in curr),
+                            leading_coeff=self._leading_coeff,
                             terms=terms, saving=saving
                         )
 
@@ -568,6 +581,8 @@ class _BronKerbosch:
                 i.pop()
             terms -= node_info.terms
             exc_costs.pop()
+            if len(curr[colour][0]) == 0:
+                self._leading_coeff = None
 
     def _filter_nodes(
             self, nodes: _Nodes,
