@@ -1957,23 +1957,17 @@ class _Optimizer:
         opt_cost = self._interms[ref.base].total_cost
         exc_cost = total_cost - opt_cost
 
-        sums = tuple(sorted(
-            eval_.sums, key=lambda x: default_sort_key(x[0])
-        ))
+        eval_terms = self._index_prod(eval_, ref.indices)
+        assert len(eval_terms) == 1
+        eval_term = eval_terms[0]
 
-        # Get the factoris and coefficients, no need to make substitution when
-        # there is no external indices.
-        if len(eval_.exts) == 0:
-            assert len(ref.indices) == 0
-            coeff = ref.coeff * eval_.coeff
-            factors = eval_.factors
-            assert factors[0] != factors[1]
-        else:
-            eval_terms = self._index_prod(eval_, ref.indices)
-            assert len(eval_terms) == 1
-            eval_term = eval_terms[0]
-            factors, coeff = eval_term.get_amp_factors(self._interms)
-            coeff *= ref.coeff
+        factors, coeff = eval_term.get_amp_factors(self._interms)
+        coeff *= ref.coeff
+        assert factors[0] != factors[1]
+
+        sums = tuple(sorted(
+            eval_term.sums, key=lambda x: default_sort_key(x[0])
+        ))
 
         excl = self._excl | {i for i, _ in exts}
 
@@ -1995,6 +1989,9 @@ class _Optimizer:
             f_i.exts = tuple(
                 i for i, v in enumerate(exts) if v[0] in symbs
             )  # Index only.
+
+            for i, _ in sums:
+                assert i in symbs
 
             # In order to really make sure, the content will be re-canonicalized
             # based on the current ambient.
