@@ -10,7 +10,7 @@ import warnings
 from drudge import TensorDef, prod_, Term, Range, sum_
 from sympy import (
     Integer, Symbol, Expr, IndexedBase, Mul, Indexed, sympify, primitive, Wild,
-    default_sort_key
+    default_sort_key, oo
 )
 from sympy.utilities.iterables import multiset_partitions
 
@@ -334,10 +334,9 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
         o = 1 if i == 0 else 0
         if n_s[i] == 0:
             # This could allow bicliques empty in a direction to be augmented by
-            # any left or right term.  A value of unity is sufficient in that
-            # the excess cost computed based on a biclique with empty direction
-            # is always zero.
-            deltas.append(_UNITY)
+            # any left or right term.  A value of infinity has to be used to
+            # mask the possible non-zero excess costs.
+            deltas.append(oo)
         else:
             deltas.append(n_s[o] * coeffs.final - v)
         continue
