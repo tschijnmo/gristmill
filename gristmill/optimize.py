@@ -2073,19 +2073,11 @@ class _Optimizer:
     ) -> Expr:
         """Form the factored term for the given factorization."""
 
-        leading_coeff = biclique.leading_coeff
-
         # Form and optimize the two new summation nodes.
-        factors = [leading_coeff]
-        need_leading = False
+        factors = [biclique.leading_coeff]
         for exts_i, nodes_i in zip(ranges.exts, biclique.nodes):
-            if need_leading:
-                denom = leading_coeff
-                need_leading = False
-            else:
-                denom = _UNITY
             scaled_terms = [
-                i.scale(j / denom) for i, j in zip(*nodes_i)
+                i.scale(j) for i, j in zip(*nodes_i)
             ]
 
             exts = exts_i + ranges.sums
