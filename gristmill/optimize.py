@@ -711,12 +711,18 @@ class _CollectGraph:
         )
 
         left_adj = self._adjs[_LEFT][left]
-        assert right not in left_adj
-        left_adj[right] = edge
+        if right not in left_adj:
+            left_adj[right] = edge
+        else:
+            # It is possible that two evaluations actually the same be recorded
+            # twice in the evaluation of product nodes because of symmetry.
+            assert left_adj[right].term == term
 
         right_adj = self._adjs[_RIGHT][right]
-        assert left not in right_adj
-        right_adj[left] = edge
+        if left not in right_adj:
+            right_adj[left] = edge
+        else:
+            assert right_adj[left].term == term
 
     def gen_bicliques(
             self, ranges: _Ranges
