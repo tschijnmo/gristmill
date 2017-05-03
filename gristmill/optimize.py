@@ -233,7 +233,7 @@ _Edge = collections.namedtuple('_Edge', [
 ])
 
 _Biclique = collections.namedtuple('_Biclique', [
-    'nodes',  # Left and right.
+    'nodes',  # Left and right, nodes and coefficients.
     'leading_coeff',
     'terms',
     'saving'
@@ -555,8 +555,7 @@ class _BronKerbosch:
 
                     if is_positive_cost(saving):
                         yield _Biclique(
-                            nodes=tuple(i for i, _ in curr),
-                            leading_coeff=self._leading_coeff,
+                            nodes=curr, leading_coeff=self._leading_coeff,
                             terms=terms, saving=saving
                         )
 
@@ -2056,7 +2055,10 @@ class _Optimizer:
                     best_ranges = ranges
                     # Make copy only when we need them.
                     best_biclique = _Biclique(
-                        nodes=tuple(tuple(i) for i in biclique.nodes),
+                        nodes=tuple(
+                            tuple(tuple(j) for j in i)
+                            for i in biclique.nodes
+                        ),
                         leading_coeff=biclique.leading_coeff,
                         terms=frozenset(biclique.terms),
                         saving=biclique.saving
@@ -2075,9 +2077,15 @@ class _Optimizer:
 
         # Form and optimize the two new summation nodes.
         factors = [leading_coeff]
+        need_leading = False
         for exts_i, nodes_i in zip(ranges.exts, biclique.nodes):
+            if need_leading:
+                denom = leading_coeff
+                need_leading = False
+            else:
+                denom = _UNITY
             scaled_terms = [
-                i.scale(1 / leading_coeff) for i in nodes_i
+                i.scale(j / denom) for i, j in zip(*nodes_i)
             ]
             if len(scaled_terms) > 1:
                 expr, eval_node = self._form_sum_interm(exts_i, scaled_terms)
