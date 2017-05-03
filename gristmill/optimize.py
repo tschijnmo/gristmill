@@ -319,7 +319,7 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
     """
 
     assert len(n_s) == 2
-    assert coeffs.preps == 2
+    assert len(coeffs.preps) == 2
 
     n_terms = prod_(n_s)
 
@@ -441,7 +441,7 @@ class _BronKerbosch:
             coeff = _UNITY
         else:
             assert len(curr[oppos_colour][1]) > 0
-            coeff = base_coeff / curr[oppos_colour][0]
+            coeff = base_coeff / curr[oppos_colour][1][0]
 
         # For empty stack, we always get here with base information (coeff=1,
         # new_terms=empty, exc_cost=0).
@@ -640,8 +640,9 @@ class _BronKerbosch:
                 else leading_edge.coeff / self._leading_coeff
             )
 
-            new_terms = v.terms | edge.term
-            if not new_terms.is_disjoint(self._terms):
+            new_terms = set(v.terms)
+            new_terms.add(edge.term)
+            if not new_terms.isdisjoint(self._terms):
                 continue
 
             new_exc_cost = v.exc_cost + edge.exc_cost
@@ -656,7 +657,7 @@ class _BronKerbosch:
             all_[k] = node_info
             continue
 
-        curr = {k: v for k, v in all_ if is_positive_cost(
+        curr = {k: v for k, v in all_.items() if is_positive_cost(
             saving.deltas[k[0]] - v.exc_cost
         )}
 
@@ -2005,7 +2006,7 @@ class _Optimizer:
             tuple(exts[j] for j in i.exts)
             for i in factor_infos
         ]
-        ranges = _Ranges(l_exts=l_exts, r_exts=r_exts, sums=sums)
+        ranges = _Ranges(exts=(l_exts, r_exts), sums=sums)
 
         # When the left and right externals differ, the two factors have
         # determined colour, or we need to add one of them for each colour
