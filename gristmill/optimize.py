@@ -2048,6 +2048,7 @@ class _Optimizer:
                     # Make copy only when we need them.
                     best_biclique = _Biclique(
                         nodes=tuple(tuple(i) for i in biclique.nodes),
+                        leading_coeff=biclique.leading_coeff,
                         terms=frozenset(biclique.terms),
                         saving=biclique.saving
                     )
