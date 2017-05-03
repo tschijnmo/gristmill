@@ -2386,6 +2386,9 @@ class _Optimizer:
             factors.append(curr_ref.ref)
             continue
 
+        assert len(factors) == 2
+        if factors[0] == factors[1]:
+            factors = [factors[0] ** 2]
         return _Prod(
             prod_node.base, prod_node.exts, broken_sums,
             coeff * prod_node.coeff, factors
