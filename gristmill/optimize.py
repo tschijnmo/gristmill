@@ -213,8 +213,6 @@ _Ranges = collections.namedtuple('_Ranges', [
 # Additional information about a node when it is used to augment the current
 # biclique.
 _NodeInfo = collections.namedtuple('_NodeInfo', [
-    'colour',
-    'node',
     'coeff',
     'terms',
     'exc_cost'
@@ -373,9 +371,7 @@ class _BronKerbosch:
 
         # All left and right nodes.
         nodes = {
-            (i, j): _NodeInfo(
-                colour=i, node=j, coeff=_UNITY, terms=set(), exc_cost=0
-            )
+            (i, j): _NodeInfo(coeff=_UNITY, terms=set(), exc_cost=0)
             for i, v in enumerate(self._adjs)
             for j in v.keys()
         }
@@ -449,10 +445,7 @@ class _BronKerbosch:
 
         # For empty stack, we always get here with base information (coeff=1,
         # new_terms=empty, exc_cost=0).
-        return _NodeInfo(
-            colour=colour, node=node,
-            coeff=coeff, terms=new_terms, exc_cost=exc_cost
-        )
+        return _NodeInfo(coeff=coeff, terms=new_terms, exc_cost=exc_cost)
 
     def _expand(
             self, subg: _Nodes, curr_subg: _Nodes,
@@ -654,7 +647,6 @@ class _BronKerbosch:
             new_exc_cost = v.exc_cost + edge.exc_cost
 
             node_info = _NodeInfo(
-                colour=colour, node=node,
                 coeff=new_coeff, terms=new_terms, exc_cost=new_exc_cost
             )
 
