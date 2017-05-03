@@ -8,14 +8,14 @@ from drudge import prod_, TensorDef
 from jinja2 import (
     Environment, PackageLoader, ChoiceLoader, DictLoader, contextfilter
 )
-from sympy import Expr, Symbol, Poly, Integer, Mul, poly_from_expr, Number
+from sympy import Expr, Symbol, Poly, Integer, Mul, poly_from_expr, Number, oo
 
 
 #
 # Cost-related utilities.
 #
 
-def get_cost_key(cost: Expr):
+def get_cost_key(cost: Expr) -> typing.Tuple[int, typing.List[Expr]]:
     """Get the key for ordering the cost.
 
     The cost should be a polynomial of at most one undetermined variable.  The
@@ -40,7 +40,11 @@ def get_cost_key(cost: Expr):
 
 def is_positive_cost(cost: Expr):
     """Decide if a cost is positive."""
-    return get_cost_key(cost)[1][0] > 0
+    _, coeffs = get_cost_key(cost)
+    for i in coeffs:
+        if i.has(oo):
+            return i > 0
+    return coeffs[0] > 0
 
 
 def add_costs(*args):
