@@ -2058,13 +2058,15 @@ class _Optimizer:
     ) -> Expr:
         """Form the factored term for the given factorization."""
 
+        leading_coeff = biclique.leading_coeff
+
         # Form and optimize the two new summation nodes.
-        #
-        # TODO: Fix the problem with non-unity leading coefficient.
-        lr_factors = []
+        factors = [leading_coeff]
         for exts_i, nodes_i in zip(ranges.exts, biclique.nodes):
-            expr, eval_node = self._form_sum_interm(exts_i, nodes_i)
-            lr_factors.append(expr)
+            expr, eval_node = self._form_sum_interm(exts_i, [
+                i.scale(1 / leading_coeff) for i in nodes_i
+            ])
+            factors.append(expr)
             self._optimize(eval_node)
             continue
 
@@ -2074,7 +2076,7 @@ class _Optimizer:
             key=lambda x: default_sort_key(x[0])
         ))
         expr, eval_node = self._form_prod_interm(
-            exts, ranges.sums, lr_factors
+            exts, ranges.sums, factors
         )
 
         # Make phony optimization of the intermediate.
