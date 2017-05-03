@@ -619,38 +619,44 @@ class _BronKerbosch:
             # The node with the same colour as the new node will not be affected
             # by the new addition.
             colour, node = k
-            if colour == new_colour:
-                all_[k] = v
-                continue
-
             adj = self._adjs[colour][node]
-            if new_node not in adj:
-                continue
-            edge = adj[new_node]
 
-            assert _OPPOS[colour] == new_colour
-            oppos_curr = curr[new_colour]
-            # We have at least the new node was just added.
-            assert len(oppos_curr[0]) > 0
-            assert len(oppos_curr[1]) == len(oppos_curr[0])
-
-            leading_edge = adj[oppos_curr[0][0]]
-            ratio = edge.coeff / leading_edge.coeff
-
-            if ratio != oppos_curr[1][-1]:
+            if colour != new_colour and new_node not in adj:
                 continue
 
-            new_coeff = (
-                v.coeff if self._leading_coeff is None
-                else leading_edge.coeff / self._leading_coeff
-            )
+            oppos_curr = curr[_OPPOS[colour]]
+            if len(oppos_curr[0]) > 0:
+                leading_edge = adj[oppos_curr[0][0]]
+            else:
+                leading_edge = None
 
-            new_terms = set(v.terms)
-            new_terms.add(edge.term)
+            if colour != new_colour:
+                edge = adj[new_node]
+
+                # We have at least the new node was just added.
+                assert leading_edge is not None
+                ratio = edge.coeff / leading_edge.coeff
+
+                if ratio != oppos_curr[1][-1]:
+                    continue
+
+                new_terms = set(v.terms)
+                new_terms.add(edge.term)
+
+                new_exc_cost = v.exc_cost + edge.exc_cost
+
+            else:
+                new_terms = v.terms
+                new_exc_cost = v.exc_cost
+
             if not new_terms.isdisjoint(self._terms):
                 continue
 
-            new_exc_cost = v.exc_cost + edge.exc_cost
+            new_coeff = (
+                v.coeff
+                if self._leading_coeff is None or leading_edge is None
+                else leading_edge.coeff / self._leading_coeff
+            )
 
             node_info = _NodeInfo(
                 coeff=new_coeff, terms=new_terms, exc_cost=new_exc_cost
