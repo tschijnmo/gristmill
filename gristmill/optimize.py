@@ -1999,7 +1999,7 @@ class _Optimizer:
             # In order to really make sure, the content will be re-canonicalized
             # based on the current ambient.
             canon_content = content.canon().reset_dumms(
-                self._dumms, excl=excl
+                self._dumms, excl=excl | content.free_vars
             )[0]
 
             _, canon_coeff = canon_content.get_amp_factors(self._interms)
