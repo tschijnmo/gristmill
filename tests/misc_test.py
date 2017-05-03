@@ -82,8 +82,9 @@ def test_optimization_handles_scalar_intermediates(spark_ctx):
 
     n = symbols('n')
     r = Range('r', 0, n)
-    a, b, c = symbols('a b c')
-    dr.set_dumms(r, [a, b, c])
+    dumms = symbols('a b c d e')
+    dr.set_dumms(r, dumms)
+    a, b, c = dumms[:3]
     dr.add_default_resolver(r)
 
     u = IndexedBase('u')
