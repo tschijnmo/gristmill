@@ -2087,12 +2087,15 @@ class _Optimizer:
             scaled_terms = [
                 i.scale(j / denom) for i, j in zip(*nodes_i)
             ]
+
+            exts = exts_i + ranges.sums
+
             if len(scaled_terms) > 1:
-                expr, eval_node = self._form_sum_interm(exts_i, scaled_terms)
+                expr, eval_node = self._form_sum_interm(exts, scaled_terms)
             else:
                 scaled_term = scaled_terms[0]
                 expr, eval_node = self._form_prod_interm(
-                    exts_i, scaled_term.sums, [scaled_term.amp]
+                    exts, scaled_term.sums, [scaled_term.amp]
                 )
             factors.append(expr)
             self._optimize(eval_node)
