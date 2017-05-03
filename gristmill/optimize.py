@@ -337,6 +337,9 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
             # any left or right term.  A value of infinity has to be used to
             # mask the possible non-zero excess costs.
             deltas.append(oo)
+        elif n_s[o] == 0:
+            # This prevents a dimension get expanded without anything.
+            deltas.append(-oo)
         else:
             deltas.append(n_s[o] * coeffs.final - v)
         continue
