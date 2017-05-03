@@ -437,11 +437,10 @@ class _BronKerbosch:
             continue
 
         # When we get here, it should be expandable now.
-        if base_coeff is None:
+        if self._leading_coeff is None:
             coeff = _UNITY
         else:
-            assert len(curr[oppos_colour][1]) > 0
-            coeff = base_coeff / curr[oppos_colour][1][0]
+            coeff = base_coeff / self._leading_coeff
 
         # For empty stack, we always get here with base information (coeff=1,
         # new_terms=empty, exc_cost=0).
