@@ -328,18 +328,21 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
         for i, j in zip(n_s, coeffs.preps)
     )
 
-    if all(i == 0 for i in n_s):
-        # This could allow bicliques empty in both directions to be augmented by
-        # any left or right term.  A value of unity is sufficient in that the
-        # excess cost computed based on the empty biclique is always zero.
-        deltas = (_UNITY, _UNITY)
-    else:
-        deltas = tuple(
-            i * coeffs.final - j
-            for i, j in zip(reversed(n_s), coeffs.preps)
-        )
+    deltas = []
+    # for i, j in zip(reversed(n_s), coeffs.preps):
+    for i, v in enumerate(coeffs.preps):
+        o = 1 if i == 0 else 0
+        if n_s[i] == 0:
+            # This could allow bicliques empty in a direction to be augmented by
+            # any left or right term.  A value of unity is sufficient in that
+            # the excess cost computed based on a biclique with empty direction
+            # is always zero.
+            deltas.append(_UNITY)
+        else:
+            deltas.append(n_s[o] * coeffs.final - v)
+        continue
 
-    return _Saving(saving=saving, deltas=deltas)
+    return _Saving(saving=saving, deltas=tuple(deltas))
 
 
 class _BronKerbosch:
@@ -496,6 +499,7 @@ class _BronKerbosch:
         #
         # for q in cand - adj[u]:
         #
+        to_loop = list(to_loop)
         for q, node_info in to_loop:
 
             #
