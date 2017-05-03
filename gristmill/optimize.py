@@ -2076,9 +2076,16 @@ class _Optimizer:
         # Form and optimize the two new summation nodes.
         factors = [leading_coeff]
         for exts_i, nodes_i in zip(ranges.exts, biclique.nodes):
-            expr, eval_node = self._form_sum_interm(exts_i, [
+            scaled_terms = [
                 i.scale(1 / leading_coeff) for i in nodes_i
-            ])
+            ]
+            if len(scaled_terms) > 1:
+                expr, eval_node = self._form_sum_interm(exts_i, scaled_terms)
+            else:
+                scaled_term = scaled_terms[0]
+                expr, eval_node = self._form_prod_interm(
+                    exts_i, scaled_term.sums, [scaled_term.amp]
+                )
             factors.append(expr)
             self._optimize(eval_node)
             continue
