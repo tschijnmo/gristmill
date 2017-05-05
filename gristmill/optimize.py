@@ -87,10 +87,13 @@ class Strategy:
     COMMON = 1 << 3
     NOCOMMON = 0
 
+    RUSH_LOCAL = 1 << 4
+    RUSH_GLOBAL = 1 << 5
+
     DEFAULT = SEARCHED | SUM | COMMON
 
     PROD_MASK = 0b11
-    MAX = 1 << 4
+    MAX = 1 << 6
 
 
 def optimize(
@@ -408,7 +411,7 @@ class _BronKerbosch:
 
     def __init__(
             self, adjs: _Adjs, base_infos: _BaseInfoDict,
-            ranges: _Ranges
+            ranges: _Ranges, rush_local=False, rush_global=False
     ):
         """Initialize the iterator."""
 
@@ -416,6 +419,8 @@ class _BronKerbosch:
         self._adjs = adjs
         self._base_infos = base_infos
         self._cost_coeffs = _get_cost_coeffs(ranges)
+        self._rush_local = rush_local
+        self._rush_global = rush_global
 
         # Dynamic data during the recursion.
         #
@@ -570,11 +575,12 @@ class _BronKerbosch:
                 if not if_skip:
                     # The total saving.
                     saving = saving.saving - sum_(exc_costs)
-                    for k, v in self._bases.items():
-                        if v > 0:
-                            saving -= self._base_infos[k].cost * (
-                                self._base_infos[k].count - v
-                            )
+                    if not self._rush_global:
+                        for k, v in self._bases.items():
+                            if v > 0:
+                                saving -= self._base_infos[k].cost * (
+                                    self._base_infos[k].count - v
+                                )
 
                     if is_positive_cost(saving):
                         yield _Biclique(
@@ -716,10 +722,11 @@ class _BronKerbosch:
     def _get_delta_saving(self, base_saving, delta) -> Expr:
         """Get the saving incurred by applying a given delta."""
         res = base_saving - delta.exc_cost
-        for k, v in delta.bases.items():
-            if self._bases[k] - v > 0:
-                base_saving -= self._base_infos[k].cost * v
-            continue
+        if not self._rush_local:
+            for k, v in delta.bases.items():
+                if self._bases[k] - v > 0:
+                    base_saving -= self._base_infos[k].cost * v
+                continue
         return res
 
     def _count_stack(self):
@@ -834,7 +841,8 @@ class _CollectGraph:
             assert right_adj[left].term == term
 
     def gen_bicliques(
-            self, ranges: _Ranges, base_infos: _BaseInfoDict
+            self, ranges: _Ranges, base_infos: _BaseInfoDict,
+            rush_local=False, rush_global=False
     ) -> typing.Iterable[_Biclique]:
         """Generate the bicliques within the graph.
 
@@ -843,7 +851,10 @@ class _CollectGraph:
         make proper copy when it is necessary.
         """
 
-        yield from _BronKerbosch(self._adjs, base_infos, ranges)
+        yield from _BronKerbosch(
+            self._adjs, base_infos, ranges,
+            rush_local=rush_local, rush_global=rush_global
+        )
 
     def remove_terms(self, terms: typing.AbstractSet[int]) -> bool:
         """Remove all edges and nodes involving the given terms.
@@ -2149,18 +2160,23 @@ class _Optimizer:
 
         return
 
-    @staticmethod
     def _choose_collectible(
-            collectibles: _Collectibles, base_infos: _BaseInfoDict
+            self, collectibles: _Collectibles, base_infos: _BaseInfoDict
     ):
         """Choose the most profitable collectible factor.
         """
+
+        rush_local = self._strategy & Strategy.RUSH_LOCAL > 0
+        rush_global = self._strategy & Strategy.RUSH_GLOBAL > 0
 
         best_saving = None
         best_ranges = None
         best_biclique = None
         for ranges, graph in collectibles.items():
-            for biclique in graph.gen_bicliques(ranges, base_infos):
+            for biclique in graph.gen_bicliques(
+                    ranges, base_infos, rush_local=rush_local,
+                    rush_global=rush_global
+            ):
 
                 saving = get_cost_key(biclique.saving)
 
