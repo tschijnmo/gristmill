@@ -1184,15 +1184,16 @@ class _Optimizer:
 
     def _set_n_refs(self, node: _EvalNode):
         """Set reference counts from an evaluation node.
-
-        It is always the first evaluation that is going to be used, all rest
-        will be removed to avoid further complications.
         """
 
         if len(node.evals) == 0:
             self._optimize(node)
+
+        # We need to find an evaluation with optimal cost.
         assert len(node.evals) > 0
-        del node.evals[1:]
+        node.evals = [next(
+            i for i in node.evals if i.total_cost == node.total_cost
+        )]
         eval_ = node.evals[0]
 
         if isinstance(eval_, _Prod):
