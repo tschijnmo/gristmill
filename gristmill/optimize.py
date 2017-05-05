@@ -430,7 +430,7 @@ class _BronKerbosch:
             ([], [])
         )
         # The set of terms currently in the biclique.
-        self._terms = {}  # type: typing.Set[Symbol]
+        self._terms = set()  # type: typing.Set[Symbol]
         # The count of bases in the **uncollected** terms.
         self._bases = collections.Counter()
         for k, v in base_infos.items():
@@ -510,6 +510,7 @@ class _BronKerbosch:
 
             exc_cost += edge.exc_cost
             new_terms.add(edge.term)
+            new_bases[edge.base] += 1
 
             continue
 
@@ -818,7 +819,7 @@ class _CollectGraph:
 
         edge = _Edge(
             term=term, eval_=eval_, coeff=coeff,
-            costs=costs.curr - costs.opt, base=base
+            exc_cost=costs.curr - costs.opt, base=base
         )
 
         left_adj = self._adjs[_LEFT][left]
