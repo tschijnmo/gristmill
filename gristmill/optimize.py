@@ -223,13 +223,6 @@ _Ranges = collections.namedtuple('_Ranges', [
     'sums'
 ])
 
-# The current and optimal costs for an evaluation..
-
-_EvalCosts = collections.namedtuple('_TermCosts', [
-    'opt',
-    'curr'
-])
-
 _Edge = collections.namedtuple('_Edge', [
     'term',
     'eval_',
@@ -814,12 +807,15 @@ class _CollectGraph:
         )
         self._base_infos = {}
 
-    def add(self, left, right, term, eval_, coeff, costs, base):
+    def add_edge(
+            self, left, right, term, eval_, base, coeff,
+            opt_cost, eval_cost, if_new
+    ):
         """Add a new edge to the graph."""
 
         edge = _Edge(
             term=term, eval_=eval_, coeff=coeff,
-            exc_cost=costs.curr - costs.opt, base=base
+            exc_cost=eval_cost - opt_cost, base=base
         )
 
         left_adj = self._adjs[_LEFT][left]
@@ -836,10 +832,11 @@ class _CollectGraph:
         else:
             assert right_adj[left].term == term
 
-        if base in self._base_infos:
-            self._base_infos[base].count += 1
-        else:
-            self._base_infos[base] = _BaseInfo(costs.opt)
+        if if_new:
+            if base in self._base_infos:
+                self._base_infos[base].count += 1
+            else:
+                self._base_infos[base] = _BaseInfo(opt_cost)
 
     def gen_bicliques(
             self, ranges: _Ranges
@@ -2058,9 +2055,8 @@ class _Optimizer:
             return
         assert len(eval_.factors) == 2
 
-        total_cost = eval_.total_cost
+        eval_cost = eval_.total_cost
         opt_cost = self._interms[ref.base].total_cost
-        costs = _EvalCosts(total_cost, opt_cost)
 
         eval_terms = self._index_prod(eval_, ref.indices)
         assert len(eval_terms) == 1
@@ -2130,12 +2126,14 @@ class _Optimizer:
             tuple(factor_infos[j].canon_content for j in i)
             for i in lr_factor_idxes
         ]
+        if_new = True
         for i in lr_factors:
-            res[ranges].add(
-                left=i[0], right=i[1],
-                term=term_idx, eval_=eval_idx, coeff=coeff, costs=costs,
-                base=ref.base
+            res[ranges].add_edge(
+                left=i[0], right=i[1], term=term_idx, eval_=eval_idx,
+                base=ref.base, coeff=coeff,
+                opt_cost=opt_cost, eval_cost=eval_cost, if_new=if_new
             )
+            if_new = False
             continue
 
         return
