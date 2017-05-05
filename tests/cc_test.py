@@ -171,9 +171,6 @@ def test_ccsd_doubles_a_terms(parthole_drudge):
 
     in Equation (8) of GE Scuseria and HF Schaefer: J Chem Phys 90 (7) 1989.
 
-    This is a case for which we cannot currently handle well even with the
-    slowest method.  So here only the correctness from greedy optimization is
-    tested.
     """
 
     dr = parthole_drudge
@@ -208,7 +205,8 @@ def test_ccsd_doubles_a_terms(parthole_drudge):
     targets = [tensor]
 
     eval_seq = optimize(
-        targets, substs={p.nv: p.no * 10}, strategy=Strategy.GREEDY
+        targets, substs={p.nv: p.no * 10}, strategy=Strategy.ALL | Strategy.SUM
     )
-
     assert verify_eval_seq(eval_seq, targets)
+    # Here we just assert that the final step is a simple product.
+    assert len(eval_seq[-1].rhs_terms) == 1
