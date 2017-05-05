@@ -1999,7 +1999,10 @@ class _Optimizer:
         if_keep = [True for _ in terms]
         new_terms = []
 
-        collectibles, base_infos = self._find_collectibles(terms, exts)
+        collectibles, base_infos, term_base = self._find_collectibles(
+            terms, exts
+        )
+
         while True:
 
             ranges, biclique = self._choose_collectible(
@@ -2009,7 +2012,9 @@ class _Optimizer:
                 break
 
             new_terms.append(self._form_factored_term(ranges, biclique))
-            self._clean_up_collected(biclique, collectibles, if_keep)
+            self._clean_up_collected(
+                biclique, collectibles, base_infos, term_base, if_keep
+            )
 
             continue
         # End Main loop.
@@ -2019,12 +2024,13 @@ class _Optimizer:
 
     def _find_collectibles(
             self, terms: typing.Sequence[Expr], exts: _SrPairs
-    ) -> typing.Tuple[_Collectibles, _BaseInfoDict]:
+    ) -> typing.Tuple[_Collectibles, _BaseInfoDict, typing.List[Symbol]]:
         """Find all collectibles for the given terms..
         """
 
         coll = collections.defaultdict(_CollectGraph)  # type: _Collectibles
         base_infos = {}
+        term_base = []
 
         for term_idx, term in enumerate(terms):
             ref = self._parse_interm_ref(term)
@@ -2047,8 +2053,9 @@ class _Optimizer:
                 base_infos[base].count += 1
             else:
                 base_infos[base] = _BaseInfo(node.total_cost)
+            term_base.append(base)
 
-        return coll, base_infos
+        return coll, base_infos, term_base
 
     def _find_collectibles_eval(
             self, term_idx: int, ref: _IntermRef, eval_idx: int, eval_: _Prod,
@@ -2218,6 +2225,7 @@ class _Optimizer:
     @staticmethod
     def _clean_up_collected(
             biclique: _Biclique, collectibles: _Collectibles,
+            base_infos: _BaseInfoDict, term_base: typing.List[Symbol],
             if_keep: typing.List[bool]
     ):
         """Clean up the collectibles and the terms after factorization."""
@@ -2235,6 +2243,14 @@ class _Optimizer:
         for i in biclique.terms:
             assert if_keep[i]
             if_keep[i] = False
+
+            base = term_base[i]
+            if base_infos[base].count > 1:
+                base_infos[base].count -= 1
+            else:
+                del base_infos[base]
+
+            continue
 
     #
     # Product optimization.
