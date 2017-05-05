@@ -1864,7 +1864,7 @@ class _Optimizer:
 
         # We first optimize the common terms.
         exts = sum_node.exts
-        terms, _ = self._organize_sum_terms(sum_node.sum_terms)
+        scalars, terms, _ = self._organize_sum_terms(sum_node.sum_terms)
 
         if self._strategy & Strategy.SUM > 0:
             new_terms, old_terms = self._factorize_sum(terms, exts)
@@ -1875,14 +1875,14 @@ class _Optimizer:
         if self._strategy & Strategy.COMMON > 0:
             old_terms = self._optimize_common_symmtrization(old_terms, exts)
 
-        new_terms.extend(old_terms)
+        res_terms = scalars + old_terms + new_terms
         sum_node.evals = [_Sum(
-            sum_node.base, sum_node.exts, new_terms
+            sum_node.base, sum_node.exts, res_terms
         )]
         return
 
     def _organize_sum_terms(self, terms: typing.Iterable[Expr]) -> typing.Tuple[
-        typing.List[Expr], _OrgTerms
+        typing.List[Expr], typing.List[Expr], _OrgTerms
     ]:
         """Organize terms in the summation node.
         """
@@ -1905,7 +1905,7 @@ class _Optimizer:
             org_terms[ref.base][ref.indices] += ref.coeff
             continue
 
-        res_terms = plain_scalars
+        res_terms = []
 
         for k, v in org_terms.items():
             assert len(v) > 0
@@ -1917,7 +1917,7 @@ class _Optimizer:
 
             continue
 
-        return res_terms, org_terms
+        return plain_scalars, res_terms, org_terms
 
     def _optimize_common_symmtrization(self, terms, exts):
         """Optimize common symmetrization in the intermediate references.
@@ -1925,7 +1925,8 @@ class _Optimizer:
 
         res_terms = []
         exts_dict = dict(exts)
-        _, org_terms = self._organize_sum_terms(terms)
+        scalars, _, org_terms = self._organize_sum_terms(terms)
+        assert len(scalars) == 0
 
         # Indices, coeffs tuple -> base, coeff
         pull_info = collections.defaultdict(list)
