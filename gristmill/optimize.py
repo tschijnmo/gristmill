@@ -470,62 +470,6 @@ class _BronKerbosch:
 
         return
 
-    def _is_expandable(
-            self, colour: _LR, node: Term
-    ) -> typing.Optional[_Delta]:
-        """Test if the given node can currently be expandable.
-
-        When it is expandable, the relevant node information will be
-        returned, or None will be the result.
-
-        THIS FUNCTION IS DEPRECATED AND PENDING REMOVAL.  Currently it is only
-        used for the sanity checking of the optimized result.
-        """
-
-        # Cache frequently used information.
-        oppos_colour = _OPPOS[colour]
-        adjs = self._adjs[colour][node]
-        curr = self._curr
-        terms = self._terms
-
-        base_coeff = None
-        exc_cost = 0
-        new_terms = set()
-        new_bases = collections.Counter()
-
-        for i, v in enumerate(curr[oppos_colour][0]):
-            if v not in adjs:
-                return
-            edge = adjs[v]  # type: _Edge
-
-            if edge.term in terms or edge.term in new_terms:
-                return
-
-            coeff = edge.coeff
-            if i == 0:
-                base_coeff = coeff
-            ratio = coeff / base_coeff
-            if ratio != curr[oppos_colour][1][i]:
-                return
-
-            exc_cost += edge.exc_cost
-            new_terms.add(edge.term)
-            new_bases[edge.base] += 1
-
-            continue
-
-        # When we get here, it should be expandable now.
-        if self._leading_coeff is None:
-            coeff = _UNITY
-        else:
-            coeff = base_coeff / self._leading_coeff
-
-        # For empty stack, we always get here with base information (coeff=1,
-        # new_terms=empty, exc_cost=0).
-        return _Delta(
-            coeff=coeff, terms=new_terms, bases=new_bases, exc_cost=exc_cost
-        )
-
     def _expand(
             self, subg: _Nodes, curr_subg: _Nodes,
             cand: _Nodes, curr_cand: _Nodes
@@ -770,7 +714,7 @@ class _BronKerbosch:
         )
 
         # Sanity checking, should be disabled in production.
-        assert res_delta == self._is_expandable(colour, node)
+        assert res_delta == self._form_delta(colour, node)
 
         return res_delta
 
@@ -793,6 +737,62 @@ class _BronKerbosch:
         )
         saving = _get_collect_saving(self._cost_coeffs, ns)
         return ns, saving
+
+    def _form_delta(
+            self, colour: _LR, node: Term
+    ) -> typing.Optional[_Delta]:
+        """Form the delta for adding a new node from scratch.
+
+        When it is expandable, the relevant node information will be
+        returned, or None will be the result.
+
+        THIS FUNCTION IS DEPRECATED AND PENDING REMOVAL.  Currently it is only
+        used for the sanity checking of the optimized result.
+        """
+
+        # Cache frequently used information.
+        oppos_colour = _OPPOS[colour]
+        adjs = self._adjs[colour][node]
+        curr = self._curr
+        terms = self._terms
+
+        base_coeff = None
+        exc_cost = 0
+        new_terms = set()
+        new_bases = collections.Counter()
+
+        for i, v in enumerate(curr[oppos_colour][0]):
+            if v not in adjs:
+                return
+            edge = adjs[v]  # type: _Edge
+
+            if edge.term in terms or edge.term in new_terms:
+                return
+
+            coeff = edge.coeff
+            if i == 0:
+                base_coeff = coeff
+            ratio = coeff / base_coeff
+            if ratio != curr[oppos_colour][1][i]:
+                return
+
+            exc_cost += edge.exc_cost
+            new_terms.add(edge.term)
+            new_bases[edge.base] += 1
+
+            continue
+
+        # When we get here, it should be expandable now.
+        if self._leading_coeff is None:
+            coeff = _UNITY
+        else:
+            coeff = base_coeff / self._leading_coeff
+
+        # For empty stack, we always get here with base information (coeff=1,
+        # new_terms=empty, exc_cost=0).
+        return _Delta(
+            coeff=coeff, terms=new_terms, bases=new_bases, exc_cost=exc_cost
+        )
 
 
 class _CollectGraph:
