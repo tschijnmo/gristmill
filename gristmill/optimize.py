@@ -255,6 +255,8 @@ class _BaseInfo:
         self.cost = cost
 
 
+_BaseInfoDict = typing.Dict[Symbol, _BaseInfo]
+
 #
 # Intermediate data and results for the Kron-Kerbosch process.
 #
@@ -405,7 +407,7 @@ class _BronKerbosch:
     """Iterable for the maximal bicliques."""
 
     def __init__(
-            self, adjs: _Adjs, base_infos: typing.Dict[Symbol, _BaseInfo],
+            self, adjs: _Adjs, base_infos: _BaseInfoDict,
             ranges: _Ranges
     ):
         """Initialize the iterator."""
@@ -805,11 +807,10 @@ class _CollectGraph:
             collections.defaultdict(dict),
             collections.defaultdict(dict)
         )
-        self._base_infos = {}
 
     def add_edge(
             self, left, right, term, eval_, base, coeff,
-            opt_cost, eval_cost, if_new
+            opt_cost, eval_cost
     ):
         """Add a new edge to the graph."""
 
@@ -832,14 +833,8 @@ class _CollectGraph:
         else:
             assert right_adj[left].term == term
 
-        if if_new:
-            if base in self._base_infos:
-                self._base_infos[base].count += 1
-            else:
-                self._base_infos[base] = _BaseInfo(opt_cost)
-
     def gen_bicliques(
-            self, ranges: _Ranges
+            self, ranges: _Ranges, base_infos: _BaseInfoDict
     ) -> typing.Iterable[_Biclique]:
         """Generate the bicliques within the graph.
 
@@ -848,7 +843,7 @@ class _CollectGraph:
         make proper copy when it is necessary.
         """
 
-        yield from _BronKerbosch(self._adjs, self._base_infos, ranges)
+        yield from _BronKerbosch(self._adjs, base_infos, ranges)
 
     def remove_terms(self, terms: typing.AbstractSet[int]) -> bool:
         """Remove all edges and nodes involving the given terms.
@@ -2002,10 +1997,12 @@ class _Optimizer:
         if_keep = [True for _ in terms]
         new_terms = []
 
-        collectibles = self._find_collectibles(terms, exts)
+        collectibles, base_infos = self._find_collectibles(terms, exts)
         while True:
 
-            ranges, biclique = self._choose_collectible(collectibles)
+            ranges, biclique = self._choose_collectible(
+                collectibles, base_infos
+            )
             if ranges is None:
                 break
 
@@ -2020,34 +2017,40 @@ class _Optimizer:
 
     def _find_collectibles(
             self, terms: typing.Sequence[Expr], exts: _SrPairs
-    ) -> _Collectibles:
+    ) -> typing.Tuple[_Collectibles, _BaseInfoDict]:
         """Find all collectibles for the given terms..
         """
 
-        res = collections.defaultdict(_CollectGraph)  # type: _Collectibles
+        coll = collections.defaultdict(_CollectGraph)  # type: _Collectibles
+        base_infos = {}
 
         for term_idx, term in enumerate(terms):
             ref = self._parse_interm_ref(term)
             if ref is None:
                 continue
 
-            node = self._interms[ref.base]
+            base = ref.base
+            node = self._interms[base]
             assert isinstance(node, _Prod)
 
             self._optimize(node)
-            ranges_set = set()
             for eval_idx, eval_ in enumerate(node.evals):
                 assert isinstance(eval_, _Prod)
                 self._find_collectibles_eval(
-                    term_idx, ref, eval_idx, eval_, exts, res, ranges_set
+                    term_idx, ref, eval_idx, eval_, exts, coll
                 )
                 continue
 
-        return res
+            if base in base_infos:
+                base_infos[base].count += 1
+            else:
+                base_infos[base] = _BaseInfo(node.total_cost)
+
+        return coll, base_infos
 
     def _find_collectibles_eval(
             self, term_idx: int, ref: _IntermRef, eval_idx: int, eval_: _Prod,
-            exts: _SrPairs, res: _Collectibles, ranges_set: typing.Set[_Ranges]
+            exts: _SrPairs, res: _Collectibles
     ):
         """Get the collectibles for a particular evaluations of a product.
         """
@@ -2131,15 +2134,16 @@ class _Optimizer:
             res[ranges].add_edge(
                 left=i[0], right=i[1], term=term_idx, eval_=eval_idx,
                 base=ref.base, coeff=coeff, opt_cost=opt_cost,
-                eval_cost=eval_cost, if_new=(ranges not in ranges_set)
+                eval_cost=eval_cost
             )
-            ranges_set.add(ranges)
             continue
 
         return
 
     @staticmethod
-    def _choose_collectible(collectibles: _Collectibles):
+    def _choose_collectible(
+            collectibles: _Collectibles, base_infos: _BaseInfoDict
+    ):
         """Choose the most profitable collectible factor.
         """
 
@@ -2147,7 +2151,7 @@ class _Optimizer:
         best_ranges = None
         best_biclique = None
         for ranges, graph in collectibles.items():
-            for biclique in graph.gen_bicliques(ranges):
+            for biclique in graph.gen_bicliques(ranges, base_infos):
 
                 saving = get_cost_key(biclique.saving)
 
