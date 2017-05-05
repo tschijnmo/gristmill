@@ -193,6 +193,11 @@ _SrPairs = typing.Sequence[typing.Tuple[Symbol, Range]]
 # Summation optimization.
 #
 
+
+#
+# Static description of the collection graph.
+#
+
 _LEFT = 0
 _RIGHT = 1
 _OPPOS = {
@@ -210,27 +215,66 @@ _Ranges = collections.namedtuple('_Ranges', [
     'sums'
 ])
 
+# The current and optimal costs for an evaluation..
+
+_EvalCosts = collections.namedtuple('_TermCosts', [
+    'opt',
+    'curr'
+])
+
+_Edge = collections.namedtuple('_Edge', [
+    'term',
+    'eval_',
+    'base',
+    'coeff',
+    'exc_cost',
+])
+
+_Adjs = typing.Tuple[
+    typing.Dict[Term, typing.Dict[Term, _Edge]],
+    typing.Dict[Term, typing.Dict[Term, _Edge]]
+]
+
+
+class _BaseInfo:
+    """Information about a base referenced in a sum node."""
+
+    __slots__ = [
+        'count',
+        'cost'
+    ]
+
+    def __init__(self, cost):
+        """Initialize the information.
+
+        The count will be initialized to one.
+        """
+
+        self.count = 1
+        self.cost = cost
+
+#
+# Intermediate data and results for the Kron-Kerbosch process.
+#
+
+
 # Additional information about a node when it is used to augment the current
 # biclique.
-_NodeInfo = collections.namedtuple('_NodeInfo', [
+_Delta = collections.namedtuple('_NodeInfo', [
     'coeff',
     'terms',
+    'bases',
     'exc_cost'
 ])
+
 
 # Dictionary of the nodes that can possibly to used to augment the current
 # biclique.  To be used for variables like ``subg`` and ``cand`` in the
 # Bron-Kerbosch algorithm.
 _Nodes = typing.Dict[
-    typing.Tuple[int, Term], typing.Optional[_NodeInfo]
+    typing.Tuple[int, Term], typing.Optional[_Delta]
 ]
 
-_Edge = collections.namedtuple('_Edge', [
-    'term',
-    'eval_',
-    'coeff',
-    'exc_cost'
-])
 
 _Biclique = collections.namedtuple('_Biclique', [
     'nodes',  # Left and right, nodes and coefficients.
@@ -238,6 +282,12 @@ _Biclique = collections.namedtuple('_Biclique', [
     'terms',
     'saving'
 ])
+
+
+#
+# Cost-related utilities for the Kron-Kerbosch process.
+#
+
 
 # These coefficients cached here can make the computation of the saving of a
 # biclique easy and fast.
@@ -347,14 +397,23 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
     return _Saving(saving=saving, deltas=tuple(deltas))
 
 
+#
+# The core classes.
+#
+
+
 class _BronKerbosch:
     """Iterable for the maximal bicliques."""
 
-    def __init__(self, adjs, ranges):
+    def __init__(
+            self, adjs: _Adjs, base_infos: typing.Dict[Symbol, _BaseInfo],
+            ranges: _Ranges
+    ):
         """Initialize the iterator."""
 
         # Static data during the recursion.
         self._adjs = adjs
+        self._base_infos = base_infos
         self._cost_coeffs = _get_cost_coeffs(ranges)
 
         # Dynamic data during the recursion.
@@ -365,7 +424,11 @@ class _BronKerbosch:
             ([], [])
         )
         # The set of terms currently in the biclique.
-        self._terms = set()
+        self._terms = {}  # type: typing.Set[Symbol]
+        # The count of bases in the **uncollected** terms.
+        self._bases = collections.Counter()
+        for k, v in base_infos.items():
+            self._bases[k] = v.count
         # The stack of excess costs.
         self._exc_costs = []
         # The leading coefficient.
@@ -376,7 +439,7 @@ class _BronKerbosch:
 
         # All left and right nodes.
         nodes = {
-            (i, j): _NodeInfo(coeff=_UNITY, terms=set(), exc_cost=0)
+            (i, j): _Delta(coeff=_UNITY, terms=set(), bases={}, exc_cost=0)
             for i, v in enumerate(self._adjs)
             for j in v.keys()
         }
@@ -394,6 +457,8 @@ class _BronKerbosch:
             continue
 
         assert len(self._terms) == 0
+        for k, v in self._bases.items():
+            assert v == self._base_infos[k].count
         assert len(self._exc_costs) == 0
         assert self._leading_coeff is None
 
@@ -401,7 +466,7 @@ class _BronKerbosch:
 
     def _is_expandable(
             self, colour: _LR, node: Term
-    ) -> typing.Optional[_NodeInfo]:
+    ) -> typing.Optional[_Delta]:
         """Test if the given node can currently be expandable.
 
         When it is expandable, the relevant node information will be
@@ -420,11 +485,12 @@ class _BronKerbosch:
         base_coeff = None
         exc_cost = 0
         new_terms = set()
+        new_bases = collections.Counter()
 
         for i, v in enumerate(curr[oppos_colour][0]):
             if v not in adjs:
                 return
-            edge = adjs[v]
+            edge = adjs[v]  # type: _Edge
 
             if edge.term in terms or edge.term in new_terms:
                 return
@@ -449,7 +515,9 @@ class _BronKerbosch:
 
         # For empty stack, we always get here with base information (coeff=1,
         # new_terms=empty, exc_cost=0).
-        return _NodeInfo(coeff=coeff, terms=new_terms, exc_cost=exc_cost)
+        return _Delta(
+            coeff=coeff, terms=new_terms, bases=new_bases, exc_cost=exc_cost
+        )
 
     def _expand(
             self, subg: _Nodes, curr_subg: _Nodes,
@@ -466,6 +534,7 @@ class _BronKerbosch:
         # The current state.
         curr = self._curr
         terms = self._terms
+        bases = self._bases
 
         # The code here are adapted from the code in NetworkX for maximal clique
         # problem of simple general graphs.  The original code are kept as much
@@ -502,7 +571,7 @@ class _BronKerbosch:
         # for q in cand - adj[u]:
         #
         to_loop = list(to_loop)
-        for q, node_info in to_loop:
+        for q, delta in to_loop:
 
             #
             # cand.remove(q)
@@ -514,11 +583,14 @@ class _BronKerbosch:
             #
             # Q.append(q)
             #
+            new_terms = delta.terms
+            new_bases = delta.bases
             curr[colour][0].append(node)
-            curr[colour][1].append(node_info.coeff)
-            assert terms.isdisjoint(node_info.terms)
-            terms |= node_info.terms
-            exc_costs.append(node_info.exc_cost)
+            curr[colour][1].append(delta.coeff)
+            assert terms.isdisjoint(delta.terms)
+            terms |= new_terms
+            bases.subtract(new_bases)
+            exc_costs.append(delta.exc_cost)
 
             oppos = _OPPOS[colour]
             if len(curr[colour][0]) == 1 and len(curr[oppos][0]) > 0:
@@ -552,6 +624,11 @@ class _BronKerbosch:
                 if not if_skip:
                     # The total saving.
                     saving = saving.saving - sum_(exc_costs)
+                    for k, v in self._bases.items():
+                        if v > 0:
+                            saving -= self._base_infos[k].cost * (
+                                self._base_infos[k].count - v
+                            )
 
                     if is_positive_cost(saving):
                         yield _Biclique(
@@ -581,7 +658,8 @@ class _BronKerbosch:
             #
             for i in curr[colour]:
                 i.pop()
-            terms -= node_info.terms
+            terms -= new_terms
+            bases.update(new_bases)
             exc_costs.pop()
             if len(curr[colour][0]) == 0:
                 self._leading_coeff = None
@@ -611,67 +689,92 @@ class _BronKerbosch:
         current stack.
         """
 
-        curr = self._curr
-
         all_ = {}
-        for k, v in nodes.items():
-            # The node with the same colour as the new node will not be affected
-            # by the new addition.
-            colour, node = k
-            adj = self._adjs[colour][node]
-
-            if colour != new_colour and new_node not in adj:
-                continue
-
-            oppos_curr = curr[_OPPOS[colour]]
-            if len(oppos_curr[0]) > 0:
-                leading_edge = adj[oppos_curr[0][0]]
-            else:
-                leading_edge = None
-
-            if colour != new_colour:
-                edge = adj[new_node]
-
-                # We have at least the new node was just added.
-                assert leading_edge is not None
-                ratio = edge.coeff / leading_edge.coeff
-
-                if ratio != oppos_curr[1][-1]:
-                    continue
-
-                new_terms = set(v.terms)
-                new_terms.add(edge.term)
-
-                new_exc_cost = v.exc_cost + edge.exc_cost
-
-            else:
-                new_terms = v.terms
-                new_exc_cost = v.exc_cost
-
-            if not new_terms.isdisjoint(self._terms):
-                continue
-
-            new_coeff = (
-                v.coeff
-                if self._leading_coeff is None or leading_edge is None
-                else leading_edge.coeff / self._leading_coeff
+        for node_key, delta in nodes.items():
+            colour, node = node_key
+            res = self._update_delta(
+                new_colour, new_node, colour, node, delta
             )
-
-            node_info = _NodeInfo(
-                coeff=new_coeff, terms=new_terms, exc_cost=new_exc_cost
-            )
-
-            # Sanity checking, should be disabled in production.
-            assert node_info == self._is_expandable(colour, node)
-
-            all_[k] = node_info
+            if res is not None:
+                all_[node_key] = res
             continue
 
         curr = {k: v for k, v in all_.items() if is_positive_cost(
-            saving.deltas[k[0]] - v.exc_cost
+            self._get_delta_saving(saving.deltas[k[0]], v)
         )}
 
         return all_, curr
+
+    def _update_delta(
+            self, new_colour, new_node, colour, node, delta
+    ) -> typing.Optional[_Delta]:
+        """Update the delta when the given new delta is just applied.
+        """
+
+        adj = self._adjs[colour][node]
+
+        # The node with the same colour as the new node will not be affected by
+        # the new addition.
+        if colour != new_colour and new_node not in adj:
+            return None
+
+        oppos_curr = self._curr[_OPPOS[colour]]
+        if len(oppos_curr[0]) > 0:
+            leading_edge = adj[oppos_curr[0][0]]
+        else:
+            leading_edge = None
+
+        if colour != new_colour:
+            new_edge = adj[new_node]
+
+            # We have at least the new node was just added.
+            assert leading_edge is not None
+            ratio = new_edge.coeff / leading_edge.coeff
+
+            if ratio != oppos_curr[1][-1]:
+                return None
+
+            res_terms = set(delta.terms)
+            res_terms.add(new_edge.term)
+
+            res_bases = collections.Counter()
+            res_bases.update(delta.bases)
+            res_bases[new_edge.base] += 1
+
+            res_exc_cost = delta.exc_cost + new_edge.exc_cost
+
+        else:
+            res_terms = delta.terms
+            res_bases = delta.bases
+            res_exc_cost = delta.exc_cost
+
+        if not res_terms.isdisjoint(self._terms):
+            return None
+
+        res_coeff = (
+            delta.coeff
+            if self._leading_coeff is None or leading_edge is None
+            else leading_edge.coeff / self._leading_coeff
+        )
+
+        res_delta = _Delta(
+            coeff=res_coeff, terms=res_terms, bases=res_bases,
+            exc_cost=res_exc_cost
+        )
+
+        # Sanity checking, should be disabled in production.
+        assert res_delta == self._is_expandable(colour, node)
+
+        return res_delta
+
+    def _get_delta_saving(self, base_saving, delta) -> Expr:
+        """Get the saving incurred by applying a given delta."""
+        res = base_saving - delta.exc_cost
+        for k, v in delta.bases.items():
+            if self._bases[k] - v > 0:
+                base_saving -= self._base_infos[k].cost * v
+            continue
+        return res
 
     def _count_stack(self):
         """Count the current size of the stack.
@@ -702,12 +805,14 @@ class _CollectGraph:
             collections.defaultdict(dict),
             collections.defaultdict(dict)
         )
+        self._base_infos = {}
 
-    def add(self, left, right, term, eval_, coeff, exc_cost):
+    def add(self, left, right, term, eval_, coeff, costs, base):
         """Add a new edge to the graph."""
 
         edge = _Edge(
-            term=term, eval_=eval_, coeff=coeff, exc_cost=exc_cost
+            term=term, eval_=eval_, coeff=coeff,
+            costs=costs.curr - costs.opt, base=base
         )
 
         left_adj = self._adjs[_LEFT][left]
@@ -724,6 +829,11 @@ class _CollectGraph:
         else:
             assert right_adj[left].term == term
 
+        if base in self._base_infos:
+            self._base_infos[base].count += 1
+        else:
+            self._base_infos[base] = _BaseInfo(costs.opt)
+
     def gen_bicliques(
             self, ranges: _Ranges
     ) -> typing.Iterable[_Biclique]:
@@ -734,7 +844,7 @@ class _CollectGraph:
         make proper copy when it is necessary.
         """
 
-        yield from _BronKerbosch(self._adjs, ranges)
+        yield from _BronKerbosch(self._adjs, self._base_infos, ranges)
 
     def remove_terms(self, terms: typing.AbstractSet[int]) -> bool:
         """Remove all edges and nodes involving the given terms.
