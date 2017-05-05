@@ -2035,10 +2035,11 @@ class _Optimizer:
             assert isinstance(node, _Prod)
 
             self._optimize(node)
+            ranges_set = set()
             for eval_idx, eval_ in enumerate(node.evals):
                 assert isinstance(eval_, _Prod)
                 self._find_collectibles_eval(
-                    term_idx, ref, eval_idx, eval_, exts, res
+                    term_idx, ref, eval_idx, eval_, exts, res, ranges_set
                 )
                 continue
 
@@ -2046,7 +2047,7 @@ class _Optimizer:
 
     def _find_collectibles_eval(
             self, term_idx: int, ref: _IntermRef, eval_idx: int, eval_: _Prod,
-            exts: _SrPairs, res: _Collectibles
+            exts: _SrPairs, res: _Collectibles, ranges_set: typing.Set[_Ranges]
     ):
         """Get the collectibles for a particular evaluations of a product.
         """
@@ -2126,14 +2127,13 @@ class _Optimizer:
             tuple(factor_infos[j].canon_content for j in i)
             for i in lr_factor_idxes
         ]
-        if_new = True
         for i in lr_factors:
             res[ranges].add_edge(
                 left=i[0], right=i[1], term=term_idx, eval_=eval_idx,
-                base=ref.base, coeff=coeff,
-                opt_cost=opt_cost, eval_cost=eval_cost, if_new=if_new
+                base=ref.base, coeff=coeff, opt_cost=opt_cost,
+                eval_cost=eval_cost, if_new=(ranges not in ranges_set)
             )
-            if_new = False
+            ranges_set.add(ranges)
             continue
 
         return
