@@ -194,6 +194,14 @@ _SrPairs = typing.Sequence[typing.Tuple[Symbol, Range]]
 #
 
 
+# Organized references to products in a summation.
+#
+# Intermediate base -> (indices -> coefficient)
+
+_OrgTerms = typing.DefaultDict[
+    Symbol, typing.DefaultDict[typing.Tuple[Expr, ...], Expr]
+]
+
 #
 # Static description of the collection graph.
 #
@@ -253,6 +261,7 @@ class _BaseInfo:
         self.count = 1
         self.cost = cost
 
+
 #
 # Intermediate data and results for the Kron-Kerbosch process.
 #
@@ -267,7 +276,6 @@ _Delta = collections.namedtuple('_NodeInfo', [
     'exc_cost'
 ])
 
-
 # Dictionary of the nodes that can possibly to used to augment the current
 # biclique.  To be used for variables like ``subg`` and ``cand`` in the
 # Bron-Kerbosch algorithm.
@@ -275,14 +283,12 @@ _Nodes = typing.Dict[
     typing.Tuple[int, Term], typing.Optional[_Delta]
 ]
 
-
 _Biclique = collections.namedtuple('_Biclique', [
     'nodes',  # Left and right, nodes and coefficients.
     'leading_coeff',
     'terms',
     'saving'
 ])
-
 
 #
 # Cost-related utilities for the Kron-Kerbosch process.
@@ -1865,28 +1871,33 @@ class _Optimizer:
 
         # We first optimize the common terms.
         exts = sum_node.exts
-        terms, new_term_idxes = self._optimize_common_terms(sum_node)
+        terms, _ = self._organize_sum_terms(sum_node)
 
         if self._strategy & Strategy.SUM > 0:
-            terms = self._factorize_sum(terms, new_term_idxes, exts)
+            new_terms, old_terms = self._factorize_sum(terms, exts)
+        else:
+            new_terms = []
+            old_terms = terms
 
+        if self._strategy & Strategy.COMMON > 0:
+            old_terms = self._optimize_common_symmtrization(old_terms, exts)
+
+        new_terms.extend(old_terms)
         sum_node.evals = [_Sum(
-            sum_node.base, sum_node.exts, terms
+            sum_node.base, sum_node.exts, new_terms
         )]
         return
 
-    def _optimize_common_terms(self, sum_node: _Sum) -> typing.Tuple[
-        typing.List[Expr], typing.List[int]
+    def _organize_sum_terms(self, sum_node: _Sum) -> typing.Tuple[
+        typing.List[Expr], _OrgTerms
     ]:
-        """Perform optimization of common intermediate references.
+        """Organize terms in the summation node.
         """
-
-        exts_dict = dict(sum_node.exts)
 
         # Intermediate base -> (indices -> coefficient)
         #
-        # This also gather terms with the same reference to deeper nodes.
-        interm_refs = collections.defaultdict(
+        # This first gather terms with the same reference to deeper nodes.
+        org_terms = collections.defaultdict(
             lambda: collections.defaultdict(lambda: 0)
         )
 
@@ -1898,38 +1909,38 @@ class _Optimizer:
                 continue
             assert ref.power == 1
 
-            interm_refs[ref.base][ref.indices] += ref.coeff
+            org_terms[ref.base][ref.indices] += ref.coeff
             continue
 
-        # Intermediate referenced only once goes to the result directly and wait
-        # to be factored, others wait to be pulled and do not participate in
-        # factorization.
         res_terms = plain_scalars
 
-        if self._strategy & Strategy.COMMON > 0:
-            res_collectible_idxes = self._optimize_common_symmtrization(
-                interm_refs, exts_dict, res_terms
-            )
-        else:
-            res_collectible_idxes = self._form_interm_refs(
-                interm_refs, res_terms
-            )
+        for k, v in org_terms.items():
+            assert len(v) > 0
 
-        return res_terms, res_collectible_idxes
+            for indices, coeff in v.items():
+                res_terms.append(
+                    _index(k, indices) * coeff
+                )
 
-    def _optimize_common_symmtrization(self, interm_refs, exts_dict, res_terms):
+            continue
+
+        return res_terms, org_terms
+
+    def _optimize_common_symmtrization(self, terms, exts):
         """Optimize common symmetrization in the intermediate references.
         """
 
-        res_collectible_idxes = []
+        res_terms = []
+        exts_dict = dict(exts)
+        _, org_terms = self._organize_sum_terms(terms)
+
         # Indices, coeffs tuple -> base, coeff
         pull_info = collections.defaultdict(list)
-        for k, v in interm_refs.items():
+        for k, v in org_terms.items():
 
             if len(v) == 0:
                 assert False
             elif len(v) == 1:
-                res_collectible_idxes.append(len(res_terms))
                 indices, coeff = v.popitem()
                 res_terms.append(
                     _index(k, indices) * coeff
@@ -1981,41 +1992,19 @@ class _Optimizer:
                 continue
 
             continue
-        return res_collectible_idxes
 
-    @staticmethod
-    def _form_interm_refs(interm_refs, res_terms):
-        """Form intermediate references directly.
-        """
+        return res_terms
 
-        res_collectible_idxes = []
-
-        for k, v in interm_refs.items():
-
-            assert len(v) > 0
-
-            # Only intermediates referenced once could participate in
-            # factorization.
-            if len(v) == 1:
-                res_collectible_idxes.append(len(res_terms))
-
-            for indices, coeff in v.items():
-                res_terms.append(
-                    _index(k, indices) * coeff
-                )
-
-            continue
-
-        return res_collectible_idxes
-
-    def _factorize_sum(self, terms, new_term_idxes, exts):
+    def _factorize_sum(
+            self, terms: typing.Sequence[Expr], exts: _SrPairs
+    ):
         """Factorize the summations greedily.
         """
 
         if_keep = [True for _ in terms]
         new_terms = []
 
-        collectibles = self._find_collectibles(terms, new_term_idxes, exts)
+        collectibles = self._find_collectibles(terms, exts)
         while True:
 
             ranges, biclique = self._choose_collectible(collectibles)
@@ -2028,19 +2017,18 @@ class _Optimizer:
             continue
         # End Main loop.
 
-        new_terms.extend(i for i, j in zip(terms, if_keep) if j)
-        return new_terms
+        old_terms = [i for i, j in zip(terms, if_keep) if j]
+        return new_terms, old_terms
 
     def _find_collectibles(
-            self, terms, new_term_idxes, exts
+            self, terms: typing.Sequence[Expr], exts: _SrPairs
     ) -> _Collectibles:
         """Find all collectibles for the given terms..
         """
 
         res = collections.defaultdict(_CollectGraph)  # type: _Collectibles
 
-        for term_idx in new_term_idxes:
-            term = terms[term_idx]
+        for term_idx, term in enumerate(terms):
             ref = self._parse_interm_ref(term)
             if ref is None:
                 continue
@@ -2059,8 +2047,8 @@ class _Optimizer:
         return res
 
     def _find_collectibles_eval(
-            self, term_idx: int, ref: _IntermRef, eval_idx: int,
-            eval_: _Prod, exts: _SrPairs, res: _Collectibles
+            self, term_idx: int, ref: _IntermRef, eval_idx: int, eval_: _Prod,
+            exts: _SrPairs, res: _Collectibles
     ):
         """Get the collectibles for a particular evaluations of a product.
         """
@@ -2071,7 +2059,7 @@ class _Optimizer:
 
         total_cost = eval_.total_cost
         opt_cost = self._interms[ref.base].total_cost
-        exc_cost = total_cost - opt_cost
+        costs = _EvalCosts(total_cost, opt_cost)
 
         eval_terms = self._index_prod(eval_, ref.indices)
         assert len(eval_terms) == 1
@@ -2144,7 +2132,8 @@ class _Optimizer:
         for i in lr_factors:
             res[ranges].add(
                 left=i[0], right=i[1],
-                term=term_idx, eval_=eval_idx, coeff=coeff, exc_cost=exc_cost
+                term=term_idx, eval_=eval_idx, coeff=coeff, costs=costs,
+                base=ref.base
             )
             continue
 
