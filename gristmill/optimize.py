@@ -1871,7 +1871,7 @@ class _Optimizer:
 
         # We first optimize the common terms.
         exts = sum_node.exts
-        terms, _ = self._organize_sum_terms(sum_node)
+        terms, _ = self._organize_sum_terms(sum_node.sum_terms)
 
         if self._strategy & Strategy.SUM > 0:
             new_terms, old_terms = self._factorize_sum(terms, exts)
@@ -1888,7 +1888,7 @@ class _Optimizer:
         )]
         return
 
-    def _organize_sum_terms(self, sum_node: _Sum) -> typing.Tuple[
+    def _organize_sum_terms(self, terms: typing.Iterable[Expr]) -> typing.Tuple[
         typing.List[Expr], _OrgTerms
     ]:
         """Organize terms in the summation node.
@@ -1902,7 +1902,7 @@ class _Optimizer:
         )
 
         plain_scalars = []
-        for term in sum_node.sum_terms:
+        for term in terms:
             ref = self._parse_interm_ref(term)
             if ref is None:
                 plain_scalars.append(term)
