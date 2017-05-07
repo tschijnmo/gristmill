@@ -902,7 +902,7 @@ _Part = collections.namedtuple('_Part', [
 def _get_prod_final_cost(exts_total_size, sums_total_size) -> Expr:
     """Compute the final cost for a pairwise product evaluation."""
 
-    if sums_total_size == 1:
+    if sums_total_size == _UNITY:
         return exts_total_size
     else:
         return _TWO * exts_total_size * sums_total_size
@@ -1903,7 +1903,7 @@ class _Optimizer:
         #
         # This first gather terms with the same reference to deeper nodes.
         org_terms = collections.defaultdict(
-            lambda: collections.defaultdict(lambda: 0)
+            lambda: collections.defaultdict(lambda: _ZERO)
         )
 
         plain_scalars = []
@@ -2539,6 +2539,7 @@ class _Optimizer:
 #
 
 
+_ZERO = Integer(0)
 _UNITY = Integer(1)
 _NEG_UNITY = Integer(-1)
 _TWO = Integer(2)
