@@ -13,7 +13,8 @@ from sympy import Expr, Symbol, Poly, Integer, Mul, poly_from_expr, Number, oo
 
 
 #
-# Cost-related utilities.
+# Cost-related utilities
+# ----------------------
 #
 
 def get_cost_key(cost: Expr) -> typing.Tuple[int, typing.List[Expr]]:
@@ -46,17 +47,6 @@ def is_positive_cost(cost: Expr):
         if i.has(oo):
             return i > 0
     return coeffs[0] > 0
-
-
-def add_costs(*args):
-    """Add the arguments as costs.
-
-    Here when one of the operand is unity, it will be taken as a zero in the
-    summation.
-    """
-
-    res = sum(i if abs(i) != 1 else 0 for i in args)
-    return res if res != 0 else 1
 
 
 def get_total_size(sums) -> Expr:
@@ -169,12 +159,12 @@ def _get_flop_cost(step, ignore_consts):
         else:
             n_add = 1
 
-        cost = add_costs(cost, (n_add + n_mult) * ext_size * sum_size)
+        cost += (n_add + n_mult) * ext_size * sum_size
         n_terms += 1
         continue
 
     if n_terms > 1:
-        cost = add_costs(cost, (n_terms - 1) * ext_size)
+        cost += cost, (n_terms - 1) * ext_size
 
     return cost
 
@@ -197,7 +187,8 @@ def _get_leading(cost):
 
 
 #
-# Disjoint set forest.
+# Disjoint set forest
+# -------------------
 #
 
 class DSF(object):
