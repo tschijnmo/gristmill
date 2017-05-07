@@ -33,14 +33,14 @@ def test_removal_of_shallow_interms(spark_ctx):
     dr = Drudge(spark_ctx)
 
     n = Symbol('n')
-    r = Range('R', 0, n)
-    r_small = Range('R', 0, Rational(1 / 2) * n)
+    r_large = Range('L', 0, n)
+    r_small = Range('S', 0, Rational(1 / 2) * n)
 
     dumms = symbols('a b c d')
     a, b, c = dumms[:3]
     dumms_small = symbols('e f g h')
     e = dumms_small[0]
-    dr.set_dumms(r, dumms)
+    dr.set_dumms(r_large, dumms)
     dr.set_dumms(r_small, dumms_small)
     dr.add_resolver_for_dumms()
 
