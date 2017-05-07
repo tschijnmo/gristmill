@@ -164,7 +164,7 @@ def _get_flop_cost(step, ignore_consts):
         continue
 
     if n_terms > 1:
-        cost += cost, (n_terms - 1) * ext_size
+        cost += (n_terms - 1) * ext_size
 
     return cost
 
