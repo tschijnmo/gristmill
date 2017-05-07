@@ -901,7 +901,7 @@ _Part = collections.namedtuple('_Part', [
 def _get_prod_final_cost(exts_total_size, sums_total_size) -> Expr:
     """Compute the final cost for a pairwise product evaluation."""
 
-    if sums_total_size == _UNITY:
+    if sums_total_size == 1:
         return exts_total_size
     else:
         return _TWO * exts_total_size * sums_total_size

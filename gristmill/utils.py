@@ -49,10 +49,14 @@ def is_positive_cost(cost: Expr):
     return coeffs[0] > 0
 
 
-def get_total_size(sums) -> Expr:
-    """Get the total size of a summation list."""
+def get_total_size(sums):
+    """Get the total size of a summation list.
 
-    size = Integer(1)
+    Here an integral unity will be returned when we have an empty summation
+    list, or we shall have the product of the sizes of the ranges.
+    """
+
+    size = 1
     for _, i in sums:
         curr = i.size
         if curr is None:
@@ -63,12 +67,7 @@ def get_total_size(sums) -> Expr:
         size *= curr
         continue
 
-    if isinstance(size, Expr):
-        return size
-    elif isinstance(size, int):
-        return Integer(size)
-    else:
-        raise TypeError('Invalid total size', size, 'from sums', sums)
+    return size
 
 
 @functools.total_ordering
