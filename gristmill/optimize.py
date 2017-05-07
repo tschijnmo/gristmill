@@ -15,7 +15,7 @@ from sympy import (
 from sympy.utilities.iterables import multiset_partitions
 
 from .utils import (
-    get_cost_key, is_positive_cost, get_total_size, DSF
+    get_cost_key, is_positive_cost, get_total_size, DSF, Tuple4Cmp
 )
 
 
@@ -2407,7 +2407,7 @@ class _Optimizer:
             size = sympify(prod_(
                 i for i, j in zip(sizes, kept) if not j
             ))
-            return get_cost_key(size), size, kept
+            return Tuple4Cmp((get_cost_key(size), size, kept))
 
         init = [True] * n_sums  # Everything is kept.
         queue = [get_size(init)]

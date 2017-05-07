@@ -1,6 +1,7 @@
 """General utilities."""
 
 import collections
+import functools
 import re
 import typing
 
@@ -78,6 +79,26 @@ def get_total_size(sums) -> Expr:
         return Integer(size)
     else:
         raise TypeError('Invalid total size', size, 'from sums', sums)
+
+
+@functools.total_ordering
+class Tuple4Cmp(tuple):
+    """Simple tuple for comparison.
+
+    Everything is the same as the built-in tuple class, just the equality and
+    ordering is solely based on the first item.
+
+    Note that this class does not make any advanced checking of the validity of
+    the comparison.
+    """
+
+    def __eq__(self, other):
+        """Make equality comparison."""
+        return self[0] == other[0]
+
+    def __lt__(self, other):
+        """Make less-than comparison."""
+        return self[0] < other[0]
 
 
 #
