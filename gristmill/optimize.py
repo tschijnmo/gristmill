@@ -506,13 +506,13 @@ class _BronKerbosch:
         # Recursion is stopped earlier than here.
         assert len(curr_subg) > 0
 
-        pivot_color, pivot_node = max(curr_subg.keys(), key=lambda x: sum(
+        pivot_colour, pivot_node = max(curr_subg.keys(), key=lambda x: sum(
             1 for i in adjs[x[0]][x[1]]
             if (_OPPOS[x[0]], i) in cand
         ))
 
-        pivot_oppos = _OPPOS[pivot_color]
-        pivot_adj = self._adjs[pivot_color][pivot_node]
+        pivot_oppos = _OPPOS[pivot_colour]
+        pivot_adj = self._adjs[pivot_colour][pivot_node]
         to_loop = (
             (k, v) for k, v in curr_cand.items()
             if k[0] != pivot_oppos or k[1] not in pivot_adj
@@ -521,7 +521,6 @@ class _BronKerbosch:
         #
         # for q in cand - adj[u]:
         #
-        to_loop = list(to_loop)
         for q, delta in to_loop:
 
             #
