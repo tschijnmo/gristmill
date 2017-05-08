@@ -6,47 +6,46 @@ import re
 import typing
 
 from drudge import prod_, TensorDef
+import numpy as np
 from jinja2 import (
     Environment, PackageLoader, ChoiceLoader, DictLoader, contextfilter
 )
 from sympy import Expr, Symbol, Poly, Integer, Mul, poly_from_expr, Number, oo
+from numpy.polynomial import Polynomial
 
 
 #
 # Cost-related utilities
 # ----------------------
 #
+# Numeric cost manipulation during optimization.
+#
 
-def get_cost_key(cost: Expr) -> typing.Tuple[int, typing.List[Expr]]:
-    """Get the key for ordering the cost.
+@functools.total_ordering
+class SVPoly(Polynomial):
+    """Single variate polynomials for sizes and costs.
 
-    The cost should be a polynomial of at most one undetermined variable.  The
-    result gives ordering of the cost agreeing with our common sense.
+    The primary thing added to its numpy base class is the total ordering.
     """
 
-    symbs = cost.atoms(Symbol)
-    n_symbs = len(symbs)
+    def __lt__(self, other):
+        """Make a less than comparison."""
 
-    if n_symbs == 0:
-        return 0, [cost]
-    elif n_symbs == 1:
-        symb = symbs.pop()
-        coeffs = Poly(cost, symb).all_coeffs()
-        return len(coeffs) - 1, coeffs
-    else:
-        raise ValueError(
-            'Invalid cost to compare', cost,
-            'expecting univariate polynomial or number'
-        )
-
-
-def is_positive_cost(cost: Expr):
-    """Decide if a cost is positive."""
-    _, coeffs = get_cost_key(cost)
-    for i in coeffs:
-        if i.has(oo):
-            return i > 0
-    return coeffs[0] > 0
+        l_deg = self.degree()
+        r_deg = other.degree()
+        if l_deg < r_deg:
+            return True
+        elif l_deg > r_deg:
+            return False
+        else:
+            diff = other - self
+            coeff = diff.coef
+            inf_idxes, = np.where(np.isinf(coeff))
+            if inf_idxes.size == 0:
+                idx = -1
+            else:
+                idx = inf_idxes[-1]
+            return coeff[idx] > 0
 
 
 def get_total_size(sums):
