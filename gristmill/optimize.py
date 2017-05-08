@@ -720,7 +720,7 @@ class _BronKerbosch:
         )
 
         # Sanity checking, should be disabled in production.
-        assert res_delta == self._form_delta(colour, node)
+        # assert res_delta == self._form_delta(colour, node)
 
         return res_delta
 
