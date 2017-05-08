@@ -99,7 +99,8 @@ class Strategy:
 
 def optimize(
         computs: typing.Iterable[TensorDef], substs=None, interm_fmt='tau^{}',
-        simplify=True, strategy=Strategy.DEFAULT
+        simplify=True, strategy=Strategy.DEFAULT, greedy_cutoff=-1,
+        drop_cutoff=-1
 ) -> typing.List[TensorDef]:
     """Optimize the valuation of the given tensor contractions.
 
@@ -128,6 +129,21 @@ def optimize(
     strategy
         The optimization strategy, as explained in :py:class:`Strategy`.
 
+    greedy_cutoff
+        The depth cutoff for making greedy selection in summation optimization.
+        Beyond this depth in the recursion tree (inclusive), only the choices
+        making locally best saving will be considered.  With negative values,
+        full Bron-Kerbosch backtracking is performed.
+
+    drop_cutoff
+        The depth cutoff for picking only a random one with greedy saving in
+        summation optimization.  The difference with the option
+        ``greedy_cutoff`` is that here only **one** choice giving the locally
+        best saving will be considered, rather than all of them.  This could
+        give better acceleration than ``greedy_cutoff`` at the presence of large
+        degeneracy, while results could be less optimized.  For large inputs, a
+        value of ``2`` is advised.
+
     """
 
     substs = {} if substs is None else substs
@@ -143,7 +159,8 @@ def optimize(
         raise TypeError('Invalid optimization strategy', strategy)
 
     opt = _Optimizer(
-        computs, substs=substs, interm_fmt=interm_fmt, strategy=strategy
+        computs, substs=substs, interm_fmt=interm_fmt, strategy=strategy,
+        greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff
     )
 
     return opt.optimize()
@@ -413,7 +430,8 @@ class _BronKerbosch:
 
     def __init__(
             self, adjs: _Adjs, base_infos: _BaseInfoDict,
-            ranges: _Ranges, rush_local=False, rush_global=False
+            ranges: _Ranges, greedy_cutoff=-1, drop_cutoff=-1,
+            rush_local=False, rush_global=False
     ):
         """Initialize the iterator."""
 
@@ -421,6 +439,9 @@ class _BronKerbosch:
         self._adjs = adjs
         self._base_infos = base_infos
         self._cost_coeffs = _get_cost_coeffs(ranges)
+
+        self._greedy_cutoff = greedy_cutoff
+        self._drop_cutoff = drop_cutoff
         self._rush_local = rush_local
         self._rush_global = rush_global
 
@@ -485,6 +506,7 @@ class _BronKerbosch:
 
         adjs = self._adjs
         exc_costs = self._exc_costs
+        depth = len(exc_costs)
 
         # The current state.
         curr = self._curr
@@ -517,10 +539,26 @@ class _BronKerbosch:
 
         pivot_oppos = _OPPOS[pivot_colour]
         pivot_adj = self._adjs[pivot_colour][pivot_node]
-        to_loop = (
+        to_loop = [
             (k, v) for k, v in curr_cand.items()
             if k[0] != pivot_oppos or k[1] not in pivot_adj
+        ]
+        if len(to_loop) == 0:
+            return
+
+        cut_greedy = (
+            0 <= self._greedy_cutoff <= depth
         )
+        cut_full = (
+            0 <= self._drop_cutoff <= depth
+        )
+        if cut_greedy or cut_full:
+            greedy_saving = max(i[1].saving for i in to_loop)
+            to_loop = (
+                i for i in to_loop if i[1].saving == greedy_saving
+            )
+            if cut_full:
+                to_loop = [next(to_loop)]
 
         #
         # for q in cand - adj[u]:
@@ -847,6 +885,7 @@ class _CollectGraph:
 
     def gen_bicliques(
             self, ranges: _Ranges, base_infos: _BaseInfoDict,
+            greedy_cutoff=-1, drop_cutoff=-1,
             rush_local=False, rush_global=False
     ) -> typing.Iterable[_Biclique]:
         """Generate the bicliques within the graph.
@@ -858,6 +897,7 @@ class _CollectGraph:
 
         yield from _BronKerbosch(
             self._adjs, base_infos, ranges,
+            greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff,
             rush_local=rush_local, rush_global=rush_global
         )
 
@@ -1012,7 +1052,10 @@ class _Optimizer:
     # Public functions.
     #
 
-    def __init__(self, computs, substs, interm_fmt, strategy):
+    def __init__(
+            self, computs, substs, interm_fmt, strategy,
+            greedy_cutoff=-1, drop_cutoff=-1
+    ):
         """Initialize the optimizer."""
 
         # Information to be read from the input computations.
@@ -1041,6 +1084,8 @@ class _Optimizer:
         # Other internal data preparation.
         self._interm_fmt = interm_fmt
         self._strategy = strategy
+        self._greedy_cutoff = greedy_cutoff
+        self._drop_cutoff = drop_cutoff
 
         self._next_internal_idx = 0
 
@@ -2155,8 +2200,10 @@ class _Optimizer:
         best_biclique = None
         for ranges, graph in collectibles.items():
             for biclique in graph.gen_bicliques(
-                    ranges, base_infos, rush_local=rush_local,
-                    rush_global=rush_global
+                    ranges, base_infos,
+                    greedy_cutoff=self._greedy_cutoff,
+                    drop_cutoff=self._drop_cutoff,
+                    rush_local=rush_local, rush_global=rush_global
             ):
 
                 saving = biclique.saving
