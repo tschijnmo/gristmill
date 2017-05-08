@@ -5,13 +5,13 @@ import functools
 import re
 import typing
 
-from drudge import prod_, TensorDef
 import numpy as np
+from drudge import prod_, TensorDef, Range
 from jinja2 import (
     Environment, PackageLoader, ChoiceLoader, DictLoader, contextfilter
 )
-from sympy import Expr, Symbol, Poly, Integer, Mul, poly_from_expr, Number, oo
 from numpy.polynomial import Polynomial
+from sympy import Symbol, Integer, Mul, poly_from_expr, Number, Poly
 
 
 #
@@ -69,6 +69,80 @@ def get_total_size(sums):
     return size
 
 
+class SizedRange(Range):
+    """Ranges with polynomial sizes.
+
+    This subclass has the size of the ranges in NumPy polynomial form cached to
+    avoid repeated computation.  Note that the explicit bounds are dropped for
+    faster equality and hashing.
+    """
+
+    __slots__ = [
+        '_size'
+    ]
+
+    def __init__(self, label, size):
+        """Initialize the sized range object."""
+        super().__init__(label)
+        self._size = size
+
+    @property
+    def size(self):
+        """Get the size of the range."""
+        return self._size
+
+    def replace_label(self, new_label):
+        """Replace the label of the range."""
+        return SizedRange(new_label, self._size)
+
+
+def form_sized_range(range_: Range, substs) -> typing.Tuple[
+    SizedRange, typing.Optional[Symbol]
+]:
+    """Form a sized range from the original raw range.
+
+    The when a symbol exists in the ranges, it will be returned as the second
+    result, or the second result will be none.
+    """
+
+    if not range_.bounded:
+        raise ValueError(
+            'Invalid range for optimization', range_,
+            'expecting explicit bound'
+        )
+    lower, upper = [
+        i.xreplace(substs)
+        for i in [range_.lower, range_.upper]
+    ]
+    size_expr = upper - lower
+
+    symbs = size_expr.atoms(Symbol)
+    n_symbs = len(symbs)
+
+    if n_symbs == 0:
+        symb = None
+        coeff_exprs = [size_expr]
+    elif n_symbs == 1:
+        symb = symbs.pop()
+        coeff_exprs = Poly(size_expr, symb).all_coeffs()
+        coeff_exprs.reverse()
+    else:
+        raise ValueError(
+            'Invalid cost to compare', size_expr,
+            'expecting univariate polynomial or number'
+        )
+
+    if all(i.is_integer for i in coeff_exprs):
+        dtype = np.int_
+    else:
+        dtype = np.float_
+
+    coeffs = np.array(coeff_exprs, dtype=dtype)
+    size = SVPoly(coeffs)
+
+    return SizedRange(range_.label, size), symb
+
+
 @functools.total_ordering
 class Tuple4Cmp(tuple):
     """Simple tuple for comparison.
@@ -90,7 +164,7 @@ class Tuple4Cmp(tuple):
 
 
 #
-# Public cost computation function.
+# Public symbolic cost computation function.
 #
 
 
