@@ -7,15 +7,16 @@ import types
 import typing
 import warnings
 
+import numpy as np
 from drudge import TensorDef, prod_, Term, Range, sum_
 from sympy import (
-    Integer, Symbol, Expr, IndexedBase, Mul, Indexed, sympify, primitive, Wild,
-    default_sort_key, oo
+    Integer, Symbol, Expr, IndexedBase, Mul, Indexed, primitive, Wild,
+    default_sort_key
 )
 from sympy.utilities.iterables import multiset_partitions
 
 from .utils import (
-    get_cost_key, is_positive_cost, get_total_size, DSF, Tuple4Cmp
+    get_total_size, DSF, Tuple4Cmp, form_sized_range, SVPoly
 )
 
 
@@ -377,8 +378,8 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
 
     n_terms = prod_(n_s)
 
-    saving = (n_terms - _UNITY) * coeffs.final - sum(
-        (i - _UNITY) * j
+    saving = (n_terms - 1) * coeffs.final - sum(
+        (i - 1) * j
         for i, j in zip(n_s, coeffs.preps)
     )
 
@@ -390,10 +391,10 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
             # This could allow bicliques empty in a direction to be augmented by
             # any left or right term.  A value of infinity has to be used to
             # mask the possible non-zero excess costs.
-            deltas.append(oo)
+            deltas.append(SVPoly([np.inf]))
         elif n_s[o] == 0:
             # This prevents a dimension get expanded without anything.
-            deltas.append(-oo)
+            deltas.append(SVPoly([-np.inf]))
         else:
             deltas.append(n_s[o] * coeffs.final - v)
         continue
@@ -581,7 +582,7 @@ class _BronKerbosch:
                                     self._base_infos[k].count - v
                                 )
 
-                    if is_positive_cost(saving):
+                    if saving > _ZERO_POLY:
                         yield _Biclique(
                             nodes=curr, leading_coeff=self._leading_coeff,
                             terms=terms, saving=saving
@@ -650,8 +651,8 @@ class _BronKerbosch:
                 all_[node_key] = res
             continue
 
-        curr = {k: v for k, v in all_.items() if is_positive_cost(
-            self._get_delta_saving(saving.deltas[k[0]], v)
+        curr = {k: v for k, v in all_.items() if (
+            self._get_delta_saving(saving.deltas[k[0]], v) > _ZERO_POLY
         )}
 
         return all_, curr
@@ -718,7 +719,7 @@ class _BronKerbosch:
 
         return res_delta
 
-    def _get_delta_saving(self, base_saving, delta) -> Expr:
+    def _get_delta_saving(self, base_saving, delta) -> SVPoly:
         """Get the saving incurred by applying a given delta."""
         res = base_saving - delta.exc_cost
         if not self._rush_local:
@@ -898,13 +899,13 @@ _Part = collections.namedtuple('_Part', [
 ])
 
 
-def _get_prod_final_cost(exts_total_size, sums_total_size) -> Expr:
+def _get_prod_final_cost(exts_total_size, sums_total_size) -> SVPoly:
     """Compute the final cost for a pairwise product evaluation."""
 
     if sums_total_size == 1:
         return exts_total_size
     else:
-        return _TWO * exts_total_size * sums_total_size
+        return 2 * exts_total_size * sums_total_size
 
 
 #
@@ -1114,20 +1115,22 @@ class _Optimizer:
         res = []
         for symb, range_ in sums:
 
-            if not range_.bounded:
-                raise ValueError(
-                    'Invalid range for optimization', range_,
-                    'expecting explicit bound'
-                )
-            lower, upper = [
-                self._check_range_var(i.xreplace(substs), range_)
-                for i in [range_.lower, range_.upper]
-            ]
+            new_range, range_var = form_sized_range(range_, substs)
 
-            new_range = Range(range_.label, lower=lower, upper=upper)
+            if range_var is not None:
+                if self._range_var is None:
+                    self._range_var = range_var
+                elif self._range_var != range_var:
+                    raise ValueError(
+                        'Invalid range', range_, 'unexpected symbol',
+                        range_var, 'conflicting with', self._range_var
+                    )
+                else:
+                    pass
+
             if new_range not in self._input_ranges:
                 self._input_ranges[new_range] = range_
-            elif range_ != self._input_ranges[new_range]:
+            elif range_.size != self._input_ranges[new_range].size:
                 raise ValueError(
                     'Invalid ranges', (range_, self._input_ranges[new_range]),
                     'duplicated labels'
@@ -1139,32 +1142,6 @@ class _Optimizer:
             continue
 
         return tuple(res)
-
-    def _check_range_var(self, expr, range_) -> Expr:
-        """Check size expression for valid symbol presence."""
-
-        range_vars = expr.atoms(Symbol)
-        if len(range_vars) == 0:
-            pass
-        elif len(range_vars) == 1:
-
-            range_var = range_vars.pop()
-            if self._range_var is None:
-                self._range_var = range_var
-            elif self._range_var != range_var:
-                raise ValueError(
-                    'Invalid range', range_, 'unexpected symbol',
-                    range_var, 'conflicting with', self._range_var
-                )
-            else:
-                pass
-        else:
-            raise ValueError(
-                'Invalid range', range_, 'containing multiple symbols',
-                range_vars
-            )
-
-        return expr
 
     #
     # Optimization result post-processing.
@@ -2177,7 +2154,7 @@ class _Optimizer:
                     rush_global=rush_global
             ):
 
-                saving = get_cost_key(biclique.saving)
+                saving = biclique.saving
 
                 if best_saving is None or saving > best_saving:
                     best_saving = saving
@@ -2298,7 +2275,7 @@ class _Optimizer:
                 if strategy == Strategy.GREEDY:
                     return True
                 elif strategy == Strategy.BEST or strategy == Strategy.SEARCHED:
-                    return get_cost_key(final_cost) > optimal_cost[0]
+                    return final_cost > optimal_cost
                 elif strategy == Strategy.ALL:
                     return False
                 else:
@@ -2321,13 +2298,12 @@ class _Optimizer:
                     + parts[0].node.total_cost
                     + parts[1].node.total_cost
                 )
-                total_cost_key = get_cost_key(total_cost)
 
                 if_new_optimal = (
-                    optimal_cost is None or optimal_cost[0] > total_cost_key
+                    optimal_cost is None or optimal_cost > total_cost
                 )
                 if if_new_optimal:
-                    optimal_cost = (total_cost_key, total_cost)
+                    optimal_cost = total_cost
                     if strategy == Strategy.BEST:
                         evals.clear()
 
@@ -2335,7 +2311,7 @@ class _Optimizer:
                 def need_add_eval():
                     """If the current evaluation need to be added."""
                     if strategy == Strategy.BEST:
-                        return total_cost_key == optimal_cost[0]
+                        return total_cost == optimal_cost
                     else:
                         return True
 
@@ -2349,7 +2325,7 @@ class _Optimizer:
                 continue
 
         assert len(evals) > 0
-        prod_node.total_cost = optimal_cost[1]
+        prod_node.total_cost = optimal_cost
         return
 
     def _gen_factor_parts(self, prod_node: _Prod):
@@ -2404,17 +2380,17 @@ class _Optimizer:
 
         def get_size(kept):
             """Wrap the kept summation with its size."""
-            size = sympify(prod_(
+            size = prod_(
                 i for i, j in zip(sizes, kept) if not j
-            ))
-            return Tuple4Cmp((get_cost_key(size), size, kept))
+            )
+            return Tuple4Cmp((size, kept))
 
         init = [True] * n_sums  # Everything is kept.
         queue = [get_size(init)]
         while len(queue) > 0:
             curr = heapq.heappop(queue)
-            yield curr[1], curr[2]
-            curr_kept = curr[2]
+            yield curr
+            curr_kept = curr[1]
             for i in range(n_sums):
                 if curr_kept[i]:
                     new_kept = list(curr_kept)
@@ -2541,7 +2517,8 @@ class _Optimizer:
 _ZERO = Integer(0)
 _UNITY = Integer(1)
 _NEG_UNITY = Integer(-1)
-_TWO = Integer(2)
+
+_ZERO_POLY = SVPoly([0])
 
 _EXT = 0
 _SUMMED_EXT = 1
