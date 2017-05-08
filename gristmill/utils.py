@@ -11,7 +11,7 @@ from jinja2 import (
     Environment, PackageLoader, ChoiceLoader, DictLoader, contextfilter
 )
 from numpy.polynomial import Polynomial
-from sympy import Symbol, Integer, Mul, poly_from_expr, Number, Poly
+from sympy import Symbol, Integer, Mul, poly_from_expr, Number, Poly, Expr
 
 
 #
@@ -46,6 +46,36 @@ class SVPoly(Polynomial):
             else:
                 idx = inf_idxes[-1]
             return coeff[idx] > 0
+
+
+def form_svpoly(expr: Expr) -> typing.Tuple[SVPoly, typing.Optional[Symbol]]:
+    """Form a single variate polynomial from a SymPy expression."""
+
+    symbs = expr.atoms(Symbol)
+    n_symbs = len(symbs)
+
+    if n_symbs == 0:
+        symb = None
+        coeff_exprs = [expr]
+    elif n_symbs == 1:
+        symb = symbs.pop()
+        coeff_exprs = Poly(expr, symb).all_coeffs()
+        coeff_exprs.reverse()
+    else:
+        raise ValueError(
+            'Invalid expression', expr,
+            'expecting single variate polynomial (or number)'
+        )
+
+    if all(i.is_integer for i in coeff_exprs):
+        dtype = np.int_
+    else:
+        dtype = np.float_
+
+    coeffs = np.array(coeff_exprs, dtype=dtype)
+    poly = SVPoly(coeffs)
+
+    return poly, symb
 
 
 def get_total_size(sums):
@@ -116,29 +146,7 @@ def form_sized_range(range_: Range, substs) -> typing.Tuple[
     ]
     size_expr = upper - lower
 
-    symbs = size_expr.atoms(Symbol)
-    n_symbs = len(symbs)
-
-    if n_symbs == 0:
-        symb = None
-        coeff_exprs = [size_expr]
-    elif n_symbs == 1:
-        symb = symbs.pop()
-        coeff_exprs = Poly(size_expr, symb).all_coeffs()
-        coeff_exprs.reverse()
-    else:
-        raise ValueError(
-            'Invalid cost to compare', size_expr,
-            'expecting univariate polynomial or number'
-        )
-
-    if all(i.is_integer for i in coeff_exprs):
-        dtype = np.int_
-    else:
-        dtype = np.float_
-
-    coeffs = np.array(coeff_exprs, dtype=dtype)
-    size = SVPoly(coeffs)
+    size, symb = form_svpoly(size_expr)
 
     return SizedRange(range_.label, size), symb
 
