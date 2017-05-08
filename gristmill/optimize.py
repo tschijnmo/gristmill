@@ -582,7 +582,7 @@ class _BronKerbosch:
                                     self._base_infos[k].count - v
                                 )
 
-                    if saving > _ZERO_POLY:
+                    if saving.is_positive:
                         yield _Biclique(
                             nodes=curr, leading_coeff=self._leading_coeff,
                             terms=terms, saving=saving
@@ -652,8 +652,8 @@ class _BronKerbosch:
             continue
 
         curr = {k: v for k, v in all_.items() if (
-            self._get_delta_saving(saving.deltas[k[0]], v) > _ZERO_POLY
-        )}
+            self._get_delta_saving(saving.deltas[k[0]], v)
+        ).is_positive}
 
         return all_, curr
 
@@ -2517,8 +2517,6 @@ class _Optimizer:
 _ZERO = Integer(0)
 _UNITY = Integer(1)
 _NEG_UNITY = Integer(-1)
-
-_ZERO_POLY = SVPoly([0])
 
 _EXT = 0
 _SUMMED_EXT = 1

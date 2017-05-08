@@ -39,13 +39,20 @@ class SVPoly(Polynomial):
             return False
         else:
             diff = other - self
-            coeff = diff.coef
-            inf_idxes, = np.where(np.isinf(coeff))
-            if inf_idxes.size == 0:
-                idx = -1
-            else:
-                idx = inf_idxes[-1]
-            return coeff[idx] > 0
+            return diff.coef[-1] > 0
+
+
+    @property
+    def is_positive(self):
+        """Test if a cost is a positive one."""
+
+        coeff = self.coef
+        inf_idxes, = np.where(np.isinf(coeff))
+        if inf_idxes.size == 0:
+            idx = -1
+        else:
+            idx = inf_idxes[-1]
+        return coeff[idx] > 0
 
 
 def form_svpoly(expr: Expr) -> typing.Tuple[SVPoly, typing.Optional[Symbol]]:
