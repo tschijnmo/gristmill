@@ -268,11 +268,12 @@ _BaseInfoDict = typing.Dict[Symbol, _BaseInfo]
 
 # Additional information about a node when it is used to augment the current
 # biclique.
-_Delta = collections.namedtuple('_NodeInfo', [
+_Delta = collections.namedtuple('_Delta', [
     'coeff',
     'terms',
     'bases',
-    'exc_cost'
+    'exc_cost',
+    'saving'
 ])
 
 # Dictionary of the nodes that can possibly to used to augment the current
@@ -446,7 +447,9 @@ class _BronKerbosch:
 
         # All left and right nodes.
         nodes = {
-            (i, j): _Delta(coeff=_UNITY, terms=set(), bases={}, exc_cost=0)
+            (i, j): _Delta(
+                coeff=_UNITY, terms=set(), bases={}, exc_cost=0, saving=0
+            )
             for i, v in enumerate(self._adjs)
             for j in v.keys()
         }
@@ -645,20 +648,18 @@ class _BronKerbosch:
         for node_key, delta in nodes.items():
             colour, node = node_key
             res = self._update_delta(
-                new_colour, new_node, colour, node, delta
+                new_colour, new_node, saving, colour, node, delta
             )
             if res is not None:
                 all_[node_key] = res
             continue
 
-        curr = {k: v for k, v in all_.items() if (
-            self._get_delta_saving(saving.deltas[k[0]], v)
-        ).is_positive}
+        curr = {k: v for k, v in all_.items() if v.saving.is_positive}
 
         return all_, curr
 
     def _update_delta(
-            self, new_colour, new_node, colour, node, delta
+            self, new_colour, new_node, saving, colour, node, delta
     ) -> typing.Optional[_Delta]:
         """Update the delta when the given new delta is just applied.
         """
@@ -709,9 +710,13 @@ class _BronKerbosch:
             else leading_edge.coeff / self._leading_coeff
         )
 
+        res_saving = self._get_delta_saving(
+            saving.deltas[colour], res_exc_cost, res_bases
+        )
+
         res_delta = _Delta(
             coeff=res_coeff, terms=res_terms, bases=res_bases,
-            exc_cost=res_exc_cost
+            exc_cost=res_exc_cost, saving=res_saving
         )
 
         # Sanity checking, should be disabled in production.
@@ -719,11 +724,11 @@ class _BronKerbosch:
 
         return res_delta
 
-    def _get_delta_saving(self, base_saving, delta) -> SVPoly:
+    def _get_delta_saving(self, base_saving, exc_cost, bases) -> SVPoly:
         """Get the saving incurred by applying a given delta."""
-        res = base_saving - delta.exc_cost
+        res = base_saving - exc_cost
         if not self._rush_local:
-            for k, v in delta.bases.items():
+            for k, v in bases.items():
                 if self._bases[k] - v > 0:
                     base_saving -= self._base_infos[k].cost * v
                 continue
