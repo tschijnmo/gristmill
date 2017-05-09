@@ -1334,6 +1334,7 @@ class _Optimizer:
         """Form the final definition of a sum evaluation node."""
 
         exts = node.exts
+        exts_dict = dict(node.exts)
         terms = []
         deps = []
 
@@ -1365,7 +1366,9 @@ class _Optimizer:
                 contents = self._index_prod(eval_, ref.indices)
                 assert len(contents) == 1
                 term = contents[0]
-                factors, term_coeff = term.get_amp_factors(self._interms)
+                factors, term_coeff = term.get_amp_factors(
+                    self._interms, exts_dict
+                )
 
                 # Switch back to evaluation node for using the facilities for
                 # product nodes.
@@ -1824,6 +1827,9 @@ class _Optimizer:
             key_term = key[0]
             key_exts = self._write_in_orig_ranges(key_term.sums[:n_exts])
             key_sums = key_term.sums[n_exts:]
+
+            # The external symbols will automatically be considered in
+            # get_amp_factors since they are in the summation list right now.
             key_factors, key_coeff = key_term.get_amp_factors(self._interms)
             interm = _Prod(
                 base, key_exts, key_sums, key_coeff, key_factors
@@ -1885,7 +1891,7 @@ class _Optimizer:
         ext_symbs = {i for i, _ in exts}
         for term in terms:
             sums = term.sums
-            factors, coeff = term.get_amp_factors(ext_symbs)
+            factors, coeff = term.get_amp_factors(self._interms, ext_symbs)
             if len(factors) == 0:
                 plain_scalars.append(coeff)
             else:
@@ -2117,7 +2123,11 @@ class _Optimizer:
         assert len(eval_terms) == 1
         eval_term = eval_terms[0]
 
-        factors, coeff = eval_term.get_amp_factors(self._interms)
+        ext_symbs = {i for i, _ in eval_.exts}
+
+        factors, coeff = eval_term.get_amp_factors(
+            self._interms, ext_symbs
+        )
         coeff *= ref.coeff
         assert factors[0] != factors[1]
 
@@ -2125,7 +2135,7 @@ class _Optimizer:
             eval_term.sums, key=lambda x: default_sort_key(x[0])
         ))
 
-        excl = self._excl | {i for i, _ in exts}
+        excl = self._excl | ext_symbs
 
         # Information about the (two) factors,
         #
@@ -2155,7 +2165,9 @@ class _Optimizer:
                 self._dumms, excl=excl | content.free_vars
             )[0]
 
-            _, canon_coeff = canon_content.get_amp_factors(self._interms)
+            _, canon_coeff = canon_content.get_amp_factors(
+                self._interms, ext_symbs
+            )
             f_i.canon_content = canon_content.map(
                 lambda x: x / canon_coeff, skip_vecs=True
             )
