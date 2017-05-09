@@ -24,3 +24,6 @@ heuristic of optimization.  Bug fixed in this release include,
 
 * Tensor definitions with external indices not actually used in its content
   will no longer have incorrect result.
+
+* Factors involving only external indices without any involvement of summed
+  indices can now be treated.
