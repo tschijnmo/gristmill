@@ -1,0 +1,26 @@
+0.5.0
+~~~~~
+
+This is probably the largest revision made to gristmill ever.  Most notably,
+the summation optimization algorithm is completely rewritten.  This algorithms
+is based on the idea in the Bron-Kerbosch algorithm for max clique problem, and
+it finally fills the last remaining gap between the automatically optimized
+result with best optimization carried by human.  The full algorithm can be
+slow.  However, options exist to fine-tune the balance between the time of
+optimization and the quality of the result.  Quite fortunately, for CCSD
+equations, the greedy algorithm actually gives the same as the full
+optimization.  It is likely that generally good results can be given for
+CC-style theories.
+
+Another revision is that now the code can handle nonlinear factors like
+:math:`(t_{ij})^2`.  Also added is the capability to disable any given
+heuristic of optimization.  Bug fixed in this release include,
+
+* Non-optimal evaluation will no longer be wrongly picked for optimization of a
+  single contraction.
+
+* Inputs with neither summation nor external indices now will not crash the
+  program.
+
+* Tensor definitions with external indices not actually used in its content
+  will no longer have incorrect result.
