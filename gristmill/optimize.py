@@ -758,7 +758,7 @@ class _BronKerbosch:
         )
 
         # Sanity checking, should be disabled in production.
-        # assert res_delta == self._form_delta(colour, node)
+        # assert res_delta == self._form_delta(colour, node, saving)
 
         return res_delta
 
@@ -784,7 +784,7 @@ class _BronKerbosch:
         return ns, saving
 
     def _form_delta(
-            self, colour: _LR, node: Term
+            self, colour: _LR, node: Term, saving: _Saving
     ) -> typing.Optional[_Delta]:
         """Form the delta for adding a new node from scratch.
 
@@ -833,10 +833,15 @@ class _BronKerbosch:
         else:
             coeff = base_coeff / self._leading_coeff
 
+        new_saving = self._get_delta_saving(
+            saving.deltas[colour], exc_cost, new_bases
+        )
+
         # For empty stack, we always get here with base information (coeff=1,
         # new_terms=empty, exc_cost=0).
         return _Delta(
-            coeff=coeff, terms=new_terms, bases=new_bases, exc_cost=exc_cost
+            coeff=coeff, terms=new_terms, bases=new_bases, exc_cost=exc_cost,
+            saving=new_saving
         )
 
 
