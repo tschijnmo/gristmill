@@ -160,14 +160,14 @@ def test_ccsd_doubles(parthole_drudge):
     assert (best_cost - all_cost).xreplace({p.no: 1, p.nv: 10}) > 0
 
 
-def test_ccsd_doubles_a_terms(parthole_drudge):
-    r"""Test optimization of the a tau term in CCSD doubles equation.
+def test_ccsd_doubles_complex_terms(parthole_drudge):
+    r"""Test optimization of the a/b tau term in CCSD doubles equation.
 
     This test is for the optimization of the
 
     .. math::
 
-        a^{kl}_{ij} \tau^{ab}{kl}
+        a^{kl}_{ij} \tau^{ab}{kl} + b^{ab}_{cd} \tau^{cd}_{ij}
 
     in Equation (8) of GE Scuseria and HF Schaefer: J Chem Phys 90 (7) 1989.
 
@@ -188,28 +188,52 @@ def test_ccsd_doubles_a_terms(parthole_drudge):
     )
 
     a_i = dr.define_einst(
-        IndexedBase('ai')[k, l, i, j], u[i, c, k, l] * t[c, j]
+        IndexedBase('AI')[k, l, i, j], u[i, c, k, l] * t[c, j]
     )
 
     a_ = dr.define(
-        IndexedBase('a')[k, l, i, j],
+        IndexedBase('A')[k, l, i, j],
         u[k, l, i, j] +
         a_i[k, l, i, j] - a_i[k, l, j, i]
         + u[k, l, c, d] * tau[c, d, i, j]
     )
 
-    tensor = dr.define_einst(
-        IndexedBase('r')[a, b, i, j],
-        a_[k, l, i, j] * tau[a, b, k, l]
-    )
-    targets = [tensor]
+    a_term = dr.einst(a_[k, l, i, j] * tau[a, b, k, l])
 
-    # This example should work well both with full backtrack and greedily.
+    b_i = dr.define_einst(
+        IndexedBase('BI')[a, b, c, d], u[a, k, c, d] * t[b, k]
+    )
+
+    b_ = dr.define_einst(
+        IndexedBase('B')[a, b, c, d],
+        u[a, b, c, d] - b_i[a, b, c, d] + b_i[b, a, c, d]
+    )
+
+    b_term = dr.einst(b_[a, b, c, d] * tau[c, d, i, j])
+
+    # Simple a term or b term should work well both with full backtrack and
+    # greedily.
+    for term in [a_term, b_term]:
+        tensor = dr.define_einst(IndexedBase('r')[a, b, i, j], term)
+        targets = [tensor]
+        for drop_cutoff in [-1, 2]:
+            eval_seq = optimize(
+                targets, substs={p.nv: p.no * 1.1},
+                strategy=Strategy.ALL | Strategy.SUM | Strategy.COMMON,
+                drop_cutoff=drop_cutoff
+            )
+            assert verify_eval_seq(eval_seq, targets)
+            # Here we just assert that the final step is a simple product.
+            assert len(eval_seq[-1].rhs_terms) == 1
+
     for drop_cutoff in [-1, 2]:
+        tensor = dr.define_einst(IndexedBase('r')[a, b, i, j], a_term + b_term)
+        targets = [tensor]
         eval_seq = optimize(
-            targets, substs={p.nv: p.no * 10},
-            strategy=Strategy.ALL | Strategy.SUM, drop_cutoff=drop_cutoff
+            targets, substs={p.nv: p.no * 1.1},
+            strategy=Strategy.ALL | Strategy.SUM | Strategy.COMMON,
+            drop_cutoff=drop_cutoff
         )
         assert verify_eval_seq(eval_seq, targets)
-        # Here we just assert that the final step is a simple product.
-        assert len(eval_seq[-1].rhs_terms) == 1
+        # Here we assert that the two products are separately factored.
+        assert len(eval_seq[-1].rhs_terms) == 2
