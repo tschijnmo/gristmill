@@ -2127,6 +2127,7 @@ class _Optimizer:
         ))
 
         excl = self._excl | ext_symbs
+        symms = self._drudge.symms.value
 
         # Information about the (two) factors,
         #
@@ -2152,7 +2153,7 @@ class _Optimizer:
 
             # In order to really make sure, the content will be re-canonicalized
             # based on the current ambient.
-            canon_content = content.canon().reset_dumms(
+            canon_content = content.canon(symms=symms).reset_dumms(
                 self._dumms, excl=excl | content.free_vars
             )[0]
 
