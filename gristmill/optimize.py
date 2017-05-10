@@ -504,7 +504,6 @@ class _BronKerbosch:
         This is the core of the Bron-Kerbosch algorithm.
         """
 
-        adjs = self._adjs
         exc_costs = self._exc_costs
         depth = len(exc_costs)
 
@@ -526,23 +525,13 @@ class _BronKerbosch:
         #
         # u = max(subg, key=lambda u: len(cand & adj[u]))
         #
-        # Here only nodes guaranteed to be profitable can be used as the pivot.
-        # Or the proof will not work out.
+        # Here it is very expensive to make sure that a node can be a pivot.
+        # Hence currently we do not perform it here.
 
         # Recursion is stopped earlier than here.
         assert len(curr_subg) > 0
 
-        pivot_colour, pivot_node = max(curr_subg.keys(), key=lambda x: sum(
-            1 for i in adjs[x[0]][x[1]]
-            if (_OPPOS[x[0]], i) in cand
-        ))
-
-        pivot_oppos = _OPPOS[pivot_colour]
-        pivot_adj = self._adjs[pivot_colour][pivot_node]
-        to_loop = [
-            (k, v) for k, v in curr_cand.items()
-            if k[0] != pivot_oppos or k[1] not in pivot_adj
-        ]
+        to_loop = curr_cand.items()
         if len(to_loop) == 0:
             return
 
