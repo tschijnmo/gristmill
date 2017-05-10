@@ -1811,7 +1811,7 @@ class _Optimizer:
             for i, j in exts
         )
         n_exts = len(decored_exts)
-        term = Term(tuple(sums), prod_(factors), ())
+        term = Term(tuple(sums), prod_(factors).simplify(), ())
 
         coeff, key, canon_exts = self._canon_terms(
             decored_exts, [term]
