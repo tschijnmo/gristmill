@@ -1564,7 +1564,7 @@ class _Optimizer:
         for term in terms:
             term, canon_sums = self._canon_term(new_sums, term)
 
-            factors, coeff = term.amp_factors
+            factors, coeff = term.get_amp_factors(self._interms)
             coeffs.append(coeff)
 
             candidates[
