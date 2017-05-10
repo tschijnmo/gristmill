@@ -720,7 +720,7 @@ class _BronKerbosch:
 
             # We have at least the new node was just added.
             assert leading_edge is not None
-            ratio = new_edge.coeff / leading_edge.coeff
+            ratio = (new_edge.coeff / leading_edge.coeff).simplify()
 
             if ratio != oppos_curr[1][-1]:
                 return None
@@ -1960,9 +1960,11 @@ class _Optimizer:
             assert len(v) > 0
 
             for indices, coeff in v.items():
-                res_terms.append(
-                    _index(k, indices) * coeff
-                )
+                coeff = coeff.simplify()
+                if coeff != 0:
+                    res_terms.append(
+                        _index(k, indices) * coeff
+                    )
 
             continue
 
