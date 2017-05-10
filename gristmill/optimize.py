@@ -11,7 +11,7 @@ import numpy as np
 from drudge import TensorDef, prod_, Term, Range, sum_
 from sympy import (
     Integer, Symbol, Expr, IndexedBase, Mul, Indexed, primitive, Wild,
-    default_sort_key
+    default_sort_key, Pow
 )
 from sympy.utilities.iterables import multiset_partitions
 
@@ -2623,9 +2623,21 @@ _WILD_FACTORY = _WildFactory()
 def _get_canon_coeff(coeffs, preferred):
     """Get the canonical coefficient from a list of coefficients."""
 
-    coeff, _ = primitive(sum(
+    expr = sum(
         v * _SYMB_FACTORY[i] for i, v in enumerate(coeffs)
-    ))
+    ).together()
+
+    frac = _UNITY  # The fractional part.
+    if isinstance(expr, Mul):
+        for i in expr.args:
+            if isinstance(i, Pow) and i.args[1] < 0:
+                frac *= i
+            continue
+        expr /= frac
+
+    coeff, _ = primitive(expr, *[
+        _SYMB_FACTORY[i] for i, _ in enumerate(coeffs)
+    ])
 
     # The primitive computation does not take phase into account.
     n_neg = 0
@@ -2647,7 +2659,7 @@ def _get_canon_coeff(coeffs, preferred):
         )
         phase = preferred_phase
 
-    return coeff * phase
+    return (coeff * phase * frac).simplify()
 
 
 def _index(base, indices, strip=False) -> Expr:
