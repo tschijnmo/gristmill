@@ -2646,7 +2646,7 @@ def _get_canon_coeff(coeffs, preferred):
         continue
 
     neg_sig, pos_sig = [
-        (len(i), tuple(sorted(i, key=default_sort_key)))
+        (len(i), tuple(sorted(default_sort_key(j) for j in i)))
         for i in [negs, poses]
     ]
     if neg_sig > pos_sig:
