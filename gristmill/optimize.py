@@ -1585,6 +1585,7 @@ class _Optimizer:
 
         canon_new_sum = canon_new_sums.pop()
         preferred = chosen[0].amp_factors[1]
+        # TODO: Currently this preferred is always positive.  Fix it.
         canon_coeff = _get_canon_coeff(coeffs, preferred)
 
         res_terms = []
@@ -2629,18 +2630,27 @@ def _get_canon_coeff(coeffs, preferred):
         _SYMB_FACTORY[i] for i, _ in enumerate(coeffs)
     ])
 
+    # Initial coefficient without phase.
+    init_coeff = coeff * frac
+
     # The primitive computation does not take phase into account.
-    n_neg = 0
-    n_pos = 0
+    negs = []
+    poses = []
     for i in coeffs:
+        i /= init_coeff
         if i.has(_NEG_UNITY) or i.is_negative:
-            n_neg += 1
+            negs.append(-i)
         else:
-            n_pos += 1
+            poses.append(i)
         continue
-    if n_neg > n_pos:
+
+    neg_sig, pos_sig = [
+        (len(i), tuple(sorted(i, key=default_sort_key)))
+        for i in [negs, poses]
+    ]
+    if neg_sig > pos_sig:
         phase = _NEG_UNITY
-    elif n_pos > n_neg:
+    elif pos_sig > neg_sig:
         phase = _UNITY
     else:
         preferred_phase = (
