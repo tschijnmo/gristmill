@@ -1550,7 +1550,7 @@ class _Optimizer:
         coeffs = []
 
         candidates = collections.defaultdict(list)
-        for term in terms:
+        for idx, term in enumerate(terms):
             term, canon_sums = self._canon_term(new_sums, term)
 
             factors, coeff = term.get_amp_factors(self._interms)
@@ -1558,7 +1558,7 @@ class _Optimizer:
 
             candidates[
                 term.map(lambda x: prod_(factors))
-            ].append(canon_sums)
+            ].append((canon_sums, idx))
             continue
 
         # Poor man's canonicalization of external indices.
@@ -1574,7 +1574,7 @@ class _Optimizer:
             x[0].sort_key
         ))
 
-        canon_new_sums = set(chosen[1])
+        canon_new_sums = set(i for i, _ in chosen[1])
         if len(canon_new_sums) > 1:
             warnings.warn(
                 'Internal deficiency: '
@@ -1584,8 +1584,9 @@ class _Optimizer:
         # summations not present in any other term.  This can be hard to check.
 
         canon_new_sum = canon_new_sums.pop()
-        preferred = chosen[0].amp_factors[1]
-        # TODO: Currently this preferred is always positive.  Fix it.
+        preferred = prod_(
+            coeffs[i] for _, i in candidates[chosen[0]]
+        )
         canon_coeff = _get_canon_coeff(coeffs, preferred)
 
         res_terms = []
