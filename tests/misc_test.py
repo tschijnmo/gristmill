@@ -126,3 +126,47 @@ def test_optimization_handles_nonlinear_factors(spark_ctx):
     ))]
     eval_seq = optimize(targets)
     assert verify_eval_seq(eval_seq, targets)
+
+
+def test_common_summation_intermediate_recognition(spark_ctx):
+    """Test recognition of summation intermediate differing only in a scalar.
+    """
+
+    dr = Drudge(spark_ctx)
+
+    n = symbols('n')
+    r = Range('r', 0, n)
+    dumms = symbols('a b c d e f g h')
+    dr.set_dumms(r, dumms)
+    a, b, c = dumms[:3]
+    dr.add_default_resolver(r)
+
+    x = IndexedBase('x')
+    y = IndexedBase('y')
+    p = IndexedBase('p')
+    q = IndexedBase('q')
+    r = IndexedBase('r')
+    s = IndexedBase('s')
+
+    for c1, c2, c3, c4 in [
+        (1, 1, 1, 1),
+        (1, 1, 2, 2),
+        (1, 1, -1, -1),
+        (1, -2, -1, 2),
+        (1, -1, -1, 1)
+    ]:
+        targets = [
+            dr.define_einst(
+                r[a, b],
+                c1 * p[a, c] * x[c, b] + c2 * p[a, c] * y[c, b]
+            ),
+            dr.define_einst(
+                s[a, b],
+                c3 * q[a, c] * x[c, b] + c4 * q[a, c] * y[c, b]
+            )
+        ]
+
+        eval_seq = optimize(targets)
+
+        assert verify_eval_seq(eval_seq, targets)
+        assert len(eval_seq) == 3
