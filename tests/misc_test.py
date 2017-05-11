@@ -148,12 +148,15 @@ def test_common_summation_intermediate_recognition(spark_ctx):
     r = IndexedBase('r')
     s = IndexedBase('s')
 
+    alpha = symbols('alpha')
+
     for c1, c2, c3, c4 in [
         (1, 1, 1, 1),
         (1, 1, 2, 2),
         (1, 1, -1, -1),
         (1, -2, -1, 2),
-        (1, -1, -1, 1)
+        (1, -1, -1, 1),
+        (1, -alpha, 2, -2 * alpha)
     ]:
         targets = [
             dr.define_einst(
