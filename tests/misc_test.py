@@ -3,7 +3,7 @@
 from drudge import Drudge, Range
 from sympy import symbols, IndexedBase, conjugate
 
-from gristmill import optimize, verify_eval_seq
+from gristmill import optimize, verify_eval_seq, get_flop_cost
 
 
 def test_simple_scalar_optimization(spark_ctx):
@@ -173,3 +173,31 @@ def test_common_summation_intermediate_recognition(spark_ctx):
 
         assert verify_eval_seq(eval_seq, targets)
         assert len(eval_seq) == 3
+
+
+def test_get_cost_on_zero_cost(spark_ctx):
+    """Test correct behaviour of get_flop_cost at input with no FLOP cost.
+    """
+
+    dr = Drudge(spark_ctx)
+
+    n = symbols('n')
+    r = Range('r', 0, n)
+    dumms = symbols('a b')
+    dr.set_dumms(r, dumms)
+    a, b = dumms[:3]
+    dr.add_default_resolver(r)
+
+    x = IndexedBase('x')
+    r = IndexedBase('y')
+
+    targets = [
+        dr.define_einst(x[a, b], r[a, b])
+    ]
+
+    for i in [
+        get_flop_cost(targets),
+        get_flop_cost(targets, leading=True)
+    ]:
+        assert i == 0
+        continue
