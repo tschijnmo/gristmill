@@ -41,7 +41,6 @@ class SVPoly(Polynomial):
             diff = other - self
             return diff.coef[-1] > 0
 
-
     @property
     def is_positive(self):
         """Test if a cost is a positive one."""
@@ -258,6 +257,9 @@ def _get_flop_cost(step, ignore_consts):
 
 def _get_leading(cost):
     """Get the leading terms in a cost polynomial."""
+
+    if cost == 0:
+        return cost
 
     symbs = tuple(cost.atoms(Symbol))
     poly, _ = poly_from_expr(cost, *symbs)
