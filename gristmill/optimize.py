@@ -256,7 +256,11 @@ _Adjs = typing.Tuple[
 
 
 class _BaseInfo:
-    """Information about a base referenced in a sum node."""
+    """Information about a base referenced in a sum node.
+
+    This is an open struct, with most of its manipulation done inside the
+    optimizer class.
+    """
 
     __slots__ = [
         'count',
@@ -2131,10 +2135,7 @@ class _Optimizer:
                 )
                 continue
 
-            if base in base_infos:
-                base_infos[base].count += 1
-            else:
-                base_infos[base] = _BaseInfo(node.total_cost)
+            self._add_to_base_infos(ref, base_infos)
             term_base.append(base)
 
         return coll, base_infos, term_base
@@ -2325,14 +2326,34 @@ class _Optimizer:
         for i in biclique.terms:
             assert if_keep[i]
             if_keep[i] = False
+            continue
+        _Optimizer._remove_from_base_infos(
+            biclique.terms, term_base, base_infos
+        )
 
+    def _add_to_base_infos(self, ref: _IntermRef, base_infos: _BaseInfoDict):
+        """Add the given reference to the base information dictionary."""
+        base = ref.base
+        if base in base_infos:
+            base_infos[base].count += 1
+        else:
+            base_infos[base] = _BaseInfo(self._interms[base].total_cost)
+        pass
+
+    @staticmethod
+    def _remove_from_base_infos(
+            terms, term_base, base_infos: _BaseInfoDict
+    ):
+        """Remove the terms from base information dictionary."""
+
+        for i in terms:
             base = term_base[i]
             if base_infos[base].count > 1:
                 base_infos[base].count -= 1
             else:
                 del base_infos[base]
 
-            continue
+        return
 
     #
     # Product optimization.
