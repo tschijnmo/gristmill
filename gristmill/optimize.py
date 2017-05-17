@@ -2192,10 +2192,11 @@ class _Optimizer:
         rush_local = self._strategy & Strategy.RUSH_LOCAL > 0
         rush_global = self._strategy & Strategy.RUSH_GLOBAL > 0
 
-        best_saving = None
-        best_ranges = None
-        best_biclique = None
+        opt_saving = None
+        opt_ranges = None
+        opt_biclique = None
         for ranges, graph in collectibles.items():
+
             for biclique in graph.gen_bicliques(
                     ranges, base_infos,
                     greedy_cutoff=self._greedy_cutoff,
@@ -2205,11 +2206,11 @@ class _Optimizer:
 
                 saving = biclique.saving
 
-                if best_saving is None or saving > best_saving:
-                    best_saving = saving
-                    best_ranges = ranges
+                if opt_saving is None or saving > opt_saving:
+                    opt_saving = saving
+                    opt_ranges = ranges
                     # Make copy only when we need them.
-                    best_biclique = _Biclique(
+                    opt_biclique = _Biclique(
                         nodes=tuple(
                             tuple(tuple(j) for j in i)
                             for i in biclique.nodes
@@ -2221,7 +2222,7 @@ class _Optimizer:
 
                 continue
 
-        return best_ranges, best_biclique
+        return opt_ranges, opt_biclique
 
     def _form_factored_term(
             self, ranges: _Ranges, biclique: _Biclique
