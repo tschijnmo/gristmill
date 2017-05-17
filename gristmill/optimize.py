@@ -932,6 +932,7 @@ class _CollectGraph:
             continue
 
         self._adjs = new_adjs
+        self._terms -= terms
 
         return if_empty
 
