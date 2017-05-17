@@ -60,6 +60,9 @@ class Strategy:
     ``SUM``
         Factorize the summations in the result.
 
+    ``INACCURATE``
+        Do not accurately calculate the saving in summation optimization.  This
+        option is not currently used.
 
     For the common factor optimization, we have
 
@@ -76,18 +79,19 @@ class Strategy:
     BEST = 1
     SEARCHED = 2
     ALL = 3
+    PROD_MASK = 0b11
 
     SUM = 1 << 2
+    INACCURATE = 1 << 3
 
-    COMMON = 1 << 3
+    COMMON = 1 << 4
 
-    RUSH_LOCAL = 1 << 4
-    RUSH_GLOBAL = 1 << 5
+    RUSH_LOCAL = 1 << 5
+    RUSH_GLOBAL = 1 << 6
 
     DEFAULT = SEARCHED | SUM | COMMON
 
-    PROD_MASK = 0b11
-    MAX = 1 << 6
+    MAX = 1 << 7
 
 
 def optimize(
