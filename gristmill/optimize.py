@@ -60,17 +60,12 @@ class Strategy:
     ``SUM``
         Factorize the summations in the result.
 
-    ``NOSUM``
-        Do not factorize the summations in the result.
 
     For the common factor optimization, we have
 
     ``COMMON``
         Skip computation of the same factor up to permutation of indices in
         summations.
-
-    ``NOCOMMON``
-        Do not give special treatment for common terms in summation.
 
     We also have the default optimization strategy as ``DEFAULT``, which will be
     ``SEARCHED | SUM | COMMON``.
@@ -83,10 +78,8 @@ class Strategy:
     ALL = 3
 
     SUM = 1 << 2
-    NOSUM = 0
 
     COMMON = 1 << 3
-    NOCOMMON = 0
 
     RUSH_LOCAL = 1 << 4
     RUSH_GLOBAL = 1 << 5
