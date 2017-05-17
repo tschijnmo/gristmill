@@ -884,6 +884,45 @@ class _CollectGraph:
 
         self._terms.add(term)
 
+    def get_opt_biclique(
+            self, ranges: _Ranges, base_infos: _BaseInfoDict,
+            greedy_cutoff=-1, drop_cutoff=-1,
+            rush_local=False, rush_global=False
+    ) -> typing.Tuple[SVPoly, _Biclique]:
+        """Get the optimal biclique in the current graph.
+        """
+
+        opt_saving = None
+        opt_biclique = None
+
+        for biclique in self.gen_bicliques(
+                ranges, base_infos,
+                greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff,
+                rush_local=rush_local, rush_global=rush_global
+        ):
+
+            saving = biclique.saving
+
+            if opt_saving is None or saving > opt_saving:
+                opt_saving = saving
+                # Make copy only when we need them.
+                opt_biclique = _Biclique(
+                    nodes=tuple(
+                        tuple(tuple(j) for j in i)
+                        for i in biclique.nodes
+                    ),
+                    leading_coeff=biclique.leading_coeff,
+                    terms=frozenset(biclique.terms),
+                    saving=biclique.saving
+                )
+
+            continue
+
+        if opt_saving is None:
+            assert opt_biclique is None
+
+        return opt_saving, opt_biclique
+
     def gen_bicliques(
             self, ranges: _Ranges, base_infos: _BaseInfoDict,
             greedy_cutoff=-1, drop_cutoff=-1,
@@ -2205,30 +2244,22 @@ class _Optimizer:
         opt_biclique = None
         for ranges, graph in collectibles.items():
 
-            for biclique in graph.gen_bicliques(
-                    ranges, base_infos,
-                    greedy_cutoff=self._greedy_cutoff,
-                    drop_cutoff=self._drop_cutoff,
-                    rush_local=rush_local, rush_global=rush_global
-            ):
+            curr_opt_saving, curr_opt_biclique = graph.get_opt_biclique(
+                ranges, base_infos,
+                greedy_cutoff=self._greedy_cutoff,
+                drop_cutoff=self._drop_cutoff,
+                rush_local=rush_local, rush_global=rush_global
+            )
 
-                saving = biclique.saving
-
-                if opt_saving is None or saving > opt_saving:
-                    opt_saving = saving
-                    opt_ranges = ranges
-                    # Make copy only when we need them.
-                    opt_biclique = _Biclique(
-                        nodes=tuple(
-                            tuple(tuple(j) for j in i)
-                            for i in biclique.nodes
-                        ),
-                        leading_coeff=biclique.leading_coeff,
-                        terms=frozenset(biclique.terms),
-                        saving=biclique.saving
-                    )
-
+            if curr_opt_saving is None:
                 continue
+
+            if opt_saving is None or curr_opt_saving > opt_saving:
+                opt_saving = curr_opt_saving
+                opt_ranges = ranges
+                opt_biclique = curr_opt_biclique
+
+            continue
 
         return opt_ranges, opt_biclique
 
