@@ -885,6 +885,7 @@ class _CollectGraph:
         )
 
         self._terms = set()
+        self._base_infos = _BaseInfoDict()
 
     def add_edge(
             self, left, right, term, eval_, base, coeff,
@@ -912,6 +913,11 @@ class _CollectGraph:
             assert right_adj[left].term == term
 
         self._terms.add(term)
+
+        # We do not need actual cost here.  For optimization purpose, the bases
+        # should always be read from the centralized base infos across all
+        # graphs.
+        self._base_infos.add_base(base, None)
 
     def get_opt_biclique(
             self, ranges: _Ranges, base_infos: _BaseInfoDict,
@@ -970,7 +976,7 @@ class _CollectGraph:
             rush_local=rush_local, rush_global=rush_global
         )
 
-    def remove_terms(self, terms: typing.AbstractSet[int]) -> bool:
+    def remove_terms(self, terms: typing.AbstractSet[int], term_base) -> bool:
         """Remove all edges and nodes involving the given terms.
 
         If a value of True is returned, we have an empty graph after the
@@ -1000,7 +1006,9 @@ class _CollectGraph:
             continue
 
         self._adjs = new_adjs
+
         self._terms -= terms
+        self._base_infos.remove_terms(terms, term_base)
 
         return if_empty
 
@@ -2340,7 +2348,7 @@ class _Optimizer:
 
         to_remove = []
         for ranges, graph in collectibles.items():
-            if_empty = graph.remove_terms(biclique.terms)
+            if_empty = graph.remove_terms(biclique.terms, term_base)
             if if_empty:
                 to_remove.append(ranges)
             continue
