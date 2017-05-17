@@ -277,7 +277,32 @@ class _BaseInfo:
         self.cost = cost
 
 
-_BaseInfoDict = typing.Dict[Symbol, _BaseInfo]
+class _BaseInfoDict(dict):
+    """Mapping from symbol of bases to its information.
+
+    Symbol -> _BaseInfo.
+    """
+
+    def add_base(self, base, cost):
+        """Add the given base."""
+        if base in self:
+            self[base].count += 1
+        else:
+            self[base] = _BaseInfo(cost)
+        return
+
+    def remove_terms(self, terms, term_base):
+        """Remove the terms from base information dictionary."""
+
+        for i in terms:
+            base = term_base[i]
+            if self[base].count > 1:
+                self[base].count -= 1
+            else:
+                del self[base]
+
+        return
+
 
 #
 # Intermediate data and results for the Kron-Kerbosch process.
@@ -2114,7 +2139,7 @@ class _Optimizer:
         """
 
         coll = collections.defaultdict(_CollectGraph)  # type: _Collectibles
-        base_infos = {}
+        base_infos = _BaseInfoDict()
         term_base = []
 
         for term_idx, term in enumerate(terms):
@@ -2135,7 +2160,7 @@ class _Optimizer:
                 )
                 continue
 
-            self._add_to_base_infos(ref, base_infos)
+            base_infos.add_base(base, node.total_cost)
             term_base.append(base)
 
         return coll, base_infos, term_base
@@ -2327,33 +2352,7 @@ class _Optimizer:
             assert if_keep[i]
             if_keep[i] = False
             continue
-        _Optimizer._remove_from_base_infos(
-            biclique.terms, term_base, base_infos
-        )
-
-    def _add_to_base_infos(self, ref: _IntermRef, base_infos: _BaseInfoDict):
-        """Add the given reference to the base information dictionary."""
-        base = ref.base
-        if base in base_infos:
-            base_infos[base].count += 1
-        else:
-            base_infos[base] = _BaseInfo(self._interms[base].total_cost)
-        pass
-
-    @staticmethod
-    def _remove_from_base_infos(
-            terms, term_base, base_infos: _BaseInfoDict
-    ):
-        """Remove the terms from base information dictionary."""
-
-        for i in terms:
-            base = term_base[i]
-            if base_infos[base].count > 1:
-                base_infos[base].count -= 1
-            else:
-                del base_infos[base]
-
-        return
+        base_infos.remove_terms(biclique.terms, term_base)
 
     #
     # Product optimization.
