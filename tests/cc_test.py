@@ -237,3 +237,40 @@ def test_ccsd_doubles_complex_terms(parthole_drudge):
         assert verify_eval_seq(eval_seq, targets)
         # Here we assert that the two products are separately factored.
         assert len(eval_seq[-1].rhs_terms) == 2
+
+
+def test_ccsd_pij_term(parthole_drudge):
+    """Test Pij term in the CCSD doubles equation.
+
+    Currently here we only test the correctness.
+    """
+
+    dr = parthole_drudge
+    p = dr.names
+
+    a, b, c, d = p.V_dumms[:4]
+    i, j, k, l = p.O_dumms[:4]
+    u = dr.two_body
+    t = IndexedBase('t')
+    dr.set_dbbar_base(t, 2)
+
+    r = IndexedBase('r')
+    f = IndexedBase('f')
+
+    targets = [dr.define_einst(
+        r[a, b, i, j],
+        - 2 * t[c, l] * t[b, a, k, i] * u[k, l, c, j]
+        + 2 * f[k, i] * t[a, b, k, j]
+        - 2 * t[c, i] * u[a, b, c, j]
+        + t[b, a, k, i] * t[c, d, j, l] * u[k, l, c, d]
+        - 2 * t[c, l] * t[d, j] * t[b, a, k, i] * u[k, l, c, d]
+        + 2 * f[k, c] * t[c, j] * t[b, a, k, i]
+    )]
+
+    drop_cutoff = -1
+    eval_seq = optimize(
+        targets, substs={p.nv: p.no * 1.1},
+        strategy=Strategy.ALL | Strategy.SUM | Strategy.COMMON,
+        drop_cutoff=drop_cutoff
+    )
+    verify_eval_seq(eval_seq, targets)
