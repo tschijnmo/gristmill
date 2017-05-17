@@ -855,6 +855,8 @@ class _CollectGraph:
             collections.defaultdict(dict)
         )
 
+        self._terms = set()
+
     def add_edge(
             self, left, right, term, eval_, base, coeff,
             opt_cost, eval_cost
@@ -880,6 +882,8 @@ class _CollectGraph:
         else:
             assert right_adj[left].term == term
 
+        self._terms.add(term)
+
     def gen_bicliques(
             self, ranges: _Ranges, base_infos: _BaseInfoDict,
             greedy_cutoff=-1, drop_cutoff=-1,
@@ -904,6 +908,9 @@ class _CollectGraph:
         If a value of True is returned, we have an empty graph after the
         removal.
         """
+
+        if self._terms.isdisjoint(terms):
+            return False
 
         new_adjs = (
             collections.defaultdict(dict),
