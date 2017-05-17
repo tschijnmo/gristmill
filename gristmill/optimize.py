@@ -292,16 +292,28 @@ class _BaseInfoDict(dict):
         return
 
     def remove_terms(self, terms, term_base):
-        """Remove the terms from base information dictionary."""
+        """Remove the terms from base information dictionary.
+
+        The bases that have been updated by this will be returned in a
+        set.
+        """
+
+        updated = set()
 
         for i in terms:
             base = term_base[i]
+
+            if base not in self:
+                continue
+
+            updated.add(base)
+
             if self[base].count > 1:
                 self[base].count -= 1
             else:
                 del self[base]
 
-        return
+        return updated
 
 
 #
