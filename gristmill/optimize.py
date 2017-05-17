@@ -2116,6 +2116,7 @@ class _Optimizer:
         for term_idx, term in enumerate(terms):
             ref = self._parse_interm_ref(term)
             if ref is None:
+                term_base.append(None)
                 continue
 
             base = ref.base
