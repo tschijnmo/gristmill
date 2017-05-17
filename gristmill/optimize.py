@@ -2358,6 +2358,13 @@ class _Optimizer:
     ):
         """Clean up the collectibles and the terms after factorization."""
 
+        for i in biclique.terms:
+            assert if_keep[i]
+            if_keep[i] = False
+            continue
+
+        updated_bases = base_infos.remove_terms(biclique.terms, term_base)
+
         to_remove = []
         for ranges, graph in collectibles.items():
             if_empty = graph.remove_terms(biclique.terms, term_base)
@@ -2367,12 +2374,6 @@ class _Optimizer:
         for i in to_remove:
             del collectibles[i]
             continue
-
-        for i in biclique.terms:
-            assert if_keep[i]
-            if_keep[i] = False
-            continue
-        base_infos.remove_terms(biclique.terms, term_base)
 
     #
     # Product optimization.
