@@ -60,17 +60,15 @@ class Strategy:
     ``SUM``
         Factorize the summations in the result.
 
-    ``NOSUM``
-        Do not factorize the summations in the result.
+    ``INACCURATE``
+        Do not accurately calculate the saving in summation optimization.  This
+        option is not currently used.
 
     For the common factor optimization, we have
 
     ``COMMON``
         Skip computation of the same factor up to permutation of indices in
         summations.
-
-    ``NOCOMMON``
-        Do not give special treatment for common terms in summation.
 
     We also have the default optimization strategy as ``DEFAULT``, which will be
     ``SEARCHED | SUM | COMMON``.
@@ -81,20 +79,19 @@ class Strategy:
     BEST = 1
     SEARCHED = 2
     ALL = 3
+    PROD_MASK = 0b11
 
     SUM = 1 << 2
-    NOSUM = 0
+    INACCURATE = 1 << 3
 
-    COMMON = 1 << 3
-    NOCOMMON = 0
+    COMMON = 1 << 4
 
-    RUSH_LOCAL = 1 << 4
-    RUSH_GLOBAL = 1 << 5
+    RUSH_LOCAL = 1 << 5
+    RUSH_GLOBAL = 1 << 6
 
     DEFAULT = SEARCHED | SUM | COMMON
 
-    PROD_MASK = 0b11
-    MAX = 1 << 6
+    MAX = 1 << 7
 
 
 def optimize(
@@ -259,7 +256,11 @@ _Adjs = typing.Tuple[
 
 
 class _BaseInfo:
-    """Information about a base referenced in a sum node."""
+    """Information about a base referenced in a sum node.
+
+    This is an open struct, with most of its manipulation done inside the
+    optimizer class.
+    """
 
     __slots__ = [
         'count',
@@ -276,7 +277,44 @@ class _BaseInfo:
         self.cost = cost
 
 
-_BaseInfoDict = typing.Dict[Symbol, _BaseInfo]
+class _BaseInfoDict(dict):
+    """Mapping from symbol of bases to its information.
+
+    Symbol -> _BaseInfo.
+    """
+
+    def add_base(self, base, cost):
+        """Add the given base."""
+        if base in self:
+            self[base].count += 1
+        else:
+            self[base] = _BaseInfo(cost)
+        return
+
+    def remove_terms(self, terms, term_base):
+        """Remove the terms from base information dictionary.
+
+        The bases that have been updated by this will be returned in a
+        set.
+        """
+
+        updated = set()
+
+        for i in terms:
+            base = term_base[i]
+
+            if base not in self:
+                continue
+
+            updated.add(base)
+
+            if self[base].count > 1:
+                self[base].count -= 1
+            else:
+                del self[base]
+
+        return updated
+
 
 #
 # Intermediate data and results for the Kron-Kerbosch process.
@@ -852,6 +890,15 @@ class _CollectGraph:
             collections.defaultdict(dict)
         )
 
+        self._terms = set()
+        self._base_infos = _BaseInfoDict()
+
+        # The optimal biclique in the current graph.  None when it is not yet
+        # determined,  _ZERO_POLY when it is determined that there is no
+        # profitable biclique in the current graph.
+        self._opt_saving = None
+        self._opt_biclique = None
+
     def add_edge(
             self, left, right, term, eval_, base, coeff,
             opt_cost, eval_cost
@@ -877,6 +924,60 @@ class _CollectGraph:
         else:
             assert right_adj[left].term == term
 
+        self._terms.add(term)
+
+        # We do not need actual cost here.  For optimization purpose, the bases
+        # should always be read from the centralized base infos across all
+        # graphs.
+        self._base_infos.add_base(base, None)
+
+    def get_opt_biclique(
+            self, ranges: _Ranges, base_infos: _BaseInfoDict,
+            greedy_cutoff=-1, drop_cutoff=-1,
+            rush_local=False, rush_global=False
+    ) -> typing.Tuple[typing.Optional[SVPoly], typing.Optional[_Biclique]]:
+        """Get the optimal biclique in the current graph.
+        """
+
+        if self._opt_saving is not None:
+            if self._opt_saving == _ZERO_POLY:
+                return None, None
+            else:
+                return self._opt_saving, self._opt_biclique
+
+        opt_saving = None
+        opt_biclique = None
+
+        for biclique in self.gen_bicliques(
+                ranges, base_infos,
+                greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff,
+                rush_local=rush_local, rush_global=rush_global
+        ):
+
+            saving = biclique.saving
+
+            if opt_saving is None or saving > opt_saving:
+                opt_saving = saving
+                # Make copy only when we need them.
+                opt_biclique = _Biclique(
+                    nodes=tuple(
+                        tuple(tuple(j) for j in i)
+                        for i in biclique.nodes
+                    ),
+                    leading_coeff=biclique.leading_coeff,
+                    terms=frozenset(biclique.terms),
+                    saving=biclique.saving
+                )
+
+            continue
+
+        if opt_saving is None:
+            assert opt_biclique is None
+            self._opt_saving = _ZERO_POLY
+            self._opt_biclique = None
+
+        return opt_saving, opt_biclique
+
     def gen_bicliques(
             self, ranges: _Ranges, base_infos: _BaseInfoDict,
             greedy_cutoff=-1, drop_cutoff=-1,
@@ -895,33 +996,57 @@ class _CollectGraph:
             rush_local=rush_local, rush_global=rush_global
         )
 
-    def remove_terms(self, terms: typing.AbstractSet[int]) -> bool:
+    def remove_terms(
+            self, terms: typing.AbstractSet[int], term_base,
+            updated_bases, base_infos
+    ) -> bool:
         """Remove all edges and nodes involving the given terms.
 
         If a value of True is returned, we have an empty graph after the
         removal.
         """
 
-        new_adjs = (
-            collections.defaultdict(dict),
-            collections.defaultdict(dict)
-        )
-        if_empty = True
+        if self._terms.isdisjoint(terms):
+            if_empty = False
+            if_updated = False
+        else:
+            if_updated = True
 
-        for old, new in zip(self._adjs, new_adjs):
-            for from_node, conns in old.items():
-                new_conns = {
-                    to_node: edge
-                    for to_node, edge in conns.items()
-                    if edge.term not in terms
-                }
-                if len(new_conns) > 0:
-                    if_empty = False
-                    new[from_node] = new_conns
+            new_adjs = (
+                collections.defaultdict(dict),
+                collections.defaultdict(dict)
+            )
+            if_empty = True
+
+            for old, new in zip(self._adjs, new_adjs):
+                for from_node, conns in old.items():
+                    new_conns = {
+                        to_node: edge
+                        for to_node, edge in conns.items()
+                        if edge.term not in terms
+                    }
+                    if len(new_conns) > 0:
+                        if_empty = False
+                        new[from_node] = new_conns
+                    continue
                 continue
-            continue
 
-        self._adjs = new_adjs
+            self._adjs = new_adjs
+
+            self._terms -= terms
+            self._base_infos.remove_terms(terms, term_base)
+
+        # We need to update the maximum biclique when a base is recently updated
+        # such that it become exclusively-involved by this graph.
+        if_dirty = if_updated or any(
+            i in self._base_infos and
+            base_infos[i].count == self._base_infos[i].count
+            for i in updated_bases
+        )
+
+        if if_dirty:
+            self._opt_saving = None
+            self._opt_biclique = None
 
         return if_empty
 
@@ -2070,12 +2195,13 @@ class _Optimizer:
         """
 
         coll = collections.defaultdict(_CollectGraph)  # type: _Collectibles
-        base_infos = {}
+        base_infos = _BaseInfoDict()
         term_base = []
 
         for term_idx, term in enumerate(terms):
             ref = self._parse_interm_ref(term)
             if ref is None:
+                term_base.append(None)
                 continue
 
             base = ref.base
@@ -2090,10 +2216,7 @@ class _Optimizer:
                 )
                 continue
 
-            if base in base_infos:
-                base_infos[base].count += 1
-            else:
-                base_infos[base] = _BaseInfo(node.total_cost)
+            base_infos.add_base(base, node.total_cost)
             term_base.append(base)
 
         return coll, base_infos, term_base
@@ -2206,36 +2329,29 @@ class _Optimizer:
         rush_local = self._strategy & Strategy.RUSH_LOCAL > 0
         rush_global = self._strategy & Strategy.RUSH_GLOBAL > 0
 
-        best_saving = None
-        best_ranges = None
-        best_biclique = None
+        opt_saving = None
+        opt_ranges = None
+        opt_biclique = None
         for ranges, graph in collectibles.items():
-            for biclique in graph.gen_bicliques(
-                    ranges, base_infos,
-                    greedy_cutoff=self._greedy_cutoff,
-                    drop_cutoff=self._drop_cutoff,
-                    rush_local=rush_local, rush_global=rush_global
-            ):
 
-                saving = biclique.saving
+            curr_opt_saving, curr_opt_biclique = graph.get_opt_biclique(
+                ranges, base_infos,
+                greedy_cutoff=self._greedy_cutoff,
+                drop_cutoff=self._drop_cutoff,
+                rush_local=rush_local, rush_global=rush_global
+            )
 
-                if best_saving is None or saving > best_saving:
-                    best_saving = saving
-                    best_ranges = ranges
-                    # Make copy only when we need them.
-                    best_biclique = _Biclique(
-                        nodes=tuple(
-                            tuple(tuple(j) for j in i)
-                            for i in biclique.nodes
-                        ),
-                        leading_coeff=biclique.leading_coeff,
-                        terms=frozenset(biclique.terms),
-                        saving=biclique.saving
-                    )
-
+            if curr_opt_saving is None:
                 continue
 
-        return best_ranges, best_biclique
+            if opt_saving is None or curr_opt_saving > opt_saving:
+                opt_saving = curr_opt_saving
+                opt_ranges = ranges
+                opt_biclique = curr_opt_biclique
+
+            continue
+
+        return opt_ranges, opt_biclique
 
     def _form_factored_term(
             self, ranges: _Ranges, biclique: _Biclique
@@ -2285,26 +2401,23 @@ class _Optimizer:
     ):
         """Clean up the collectibles and the terms after factorization."""
 
+        for i in biclique.terms:
+            assert if_keep[i]
+            if_keep[i] = False
+            continue
+
+        updated_bases = base_infos.remove_terms(biclique.terms, term_base)
+
         to_remove = []
         for ranges, graph in collectibles.items():
-            if_empty = graph.remove_terms(biclique.terms)
+            if_empty = graph.remove_terms(
+                biclique.terms, term_base, updated_bases, base_infos
+            )
             if if_empty:
                 to_remove.append(ranges)
             continue
         for i in to_remove:
             del collectibles[i]
-            continue
-
-        for i in biclique.terms:
-            assert if_keep[i]
-            if_keep[i] = False
-
-            base = term_base[i]
-            if base_infos[base].count > 1:
-                base_infos[base].count -= 1
-            else:
-                del base_infos[base]
-
             continue
 
     #
@@ -2584,6 +2697,8 @@ _NEG_UNITY = Integer(-1)
 _EXT = 0
 _SUMMED_EXT = 1
 _SUMMED = 2
+
+_ZERO_POLY = SVPoly([0])
 
 _SUBSTED_EVAL_BASE = Symbol('gristmillSubstitutedEvalBase')
 
