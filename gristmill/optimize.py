@@ -899,6 +899,12 @@ class _CollectGraph:
         self._terms = set()
         self._base_infos = _BaseInfoDict()
 
+        # The optimal biclique in the current graph.  None when it is not yet
+        # determined,  _ZERO_POLY when it is determined that there is no
+        # profitable biclique in the current graph.
+        self._opt_saving = None
+        self._opt_biclique = None
+
     def add_edge(
             self, left, right, term, eval_, base, coeff,
             opt_cost, eval_cost
@@ -935,9 +941,15 @@ class _CollectGraph:
             self, ranges: _Ranges, base_infos: _BaseInfoDict,
             greedy_cutoff=-1, drop_cutoff=-1,
             rush_local=False, rush_global=False
-    ) -> typing.Tuple[SVPoly, _Biclique]:
+    ) -> typing.Tuple[typing.Optional[SVPoly], typing.Optional[_Biclique]]:
         """Get the optimal biclique in the current graph.
         """
+
+        if self._opt_saving is not None:
+            if self._opt_saving == _ZERO_POLY:
+                return None, None
+            else:
+                return self._opt_saving, self._opt_biclique
 
         opt_saving = None
         opt_biclique = None
@@ -967,6 +979,8 @@ class _CollectGraph:
 
         if opt_saving is None:
             assert opt_biclique is None
+            self._opt_saving = _ZERO_POLY
+            self._opt_biclique = None
 
         return opt_saving, opt_biclique
 
@@ -988,7 +1002,10 @@ class _CollectGraph:
             rush_local=rush_local, rush_global=rush_global
         )
 
-    def remove_terms(self, terms: typing.AbstractSet[int], term_base) -> bool:
+    def remove_terms(
+            self, terms: typing.AbstractSet[int], term_base,
+            updated_bases, base_infos
+    ) -> bool:
         """Remove all edges and nodes involving the given terms.
 
         If a value of True is returned, we have an empty graph after the
@@ -996,31 +1013,46 @@ class _CollectGraph:
         """
 
         if self._terms.isdisjoint(terms):
-            return False
+            if_empty = False
+            if_updated = False
+        else:
+            if_updated = True
 
-        new_adjs = (
-            collections.defaultdict(dict),
-            collections.defaultdict(dict)
-        )
-        if_empty = True
+            new_adjs = (
+                collections.defaultdict(dict),
+                collections.defaultdict(dict)
+            )
+            if_empty = True
 
-        for old, new in zip(self._adjs, new_adjs):
-            for from_node, conns in old.items():
-                new_conns = {
-                    to_node: edge
-                    for to_node, edge in conns.items()
-                    if edge.term not in terms
-                }
-                if len(new_conns) > 0:
-                    if_empty = False
-                    new[from_node] = new_conns
+            for old, new in zip(self._adjs, new_adjs):
+                for from_node, conns in old.items():
+                    new_conns = {
+                        to_node: edge
+                        for to_node, edge in conns.items()
+                        if edge.term not in terms
+                    }
+                    if len(new_conns) > 0:
+                        if_empty = False
+                        new[from_node] = new_conns
+                    continue
                 continue
-            continue
 
-        self._adjs = new_adjs
+            self._adjs = new_adjs
 
-        self._terms -= terms
-        self._base_infos.remove_terms(terms, term_base)
+            self._terms -= terms
+            self._base_infos.remove_terms(terms, term_base)
+
+        # We need to update the maximum biclique when a base is recently updated
+        # such that it become exclusively-involved by this graph.
+        if_dirty = if_updated or any(
+            i in self._base_infos and
+            base_infos[i].count == self._base_infos[i].count
+            for i in updated_bases
+        )
+
+        if if_dirty:
+            self._opt_saving = None
+            self._opt_biclique = None
 
         return if_empty
 
@@ -2367,7 +2399,9 @@ class _Optimizer:
 
         to_remove = []
         for ranges, graph in collectibles.items():
-            if_empty = graph.remove_terms(biclique.terms, term_base)
+            if_empty = graph.remove_terms(
+                biclique.terms, term_base, updated_bases, base_infos
+            )
             if if_empty:
                 to_remove.append(ranges)
             continue
@@ -2652,6 +2686,8 @@ _NEG_UNITY = Integer(-1)
 _EXT = 0
 _SUMMED_EXT = 1
 _SUMMED = 2
+
+_ZERO_POLY = SVPoly([0])
 
 _SUBSTED_EVAL_BASE = Symbol('gristmillSubstitutedEvalBase')
 
