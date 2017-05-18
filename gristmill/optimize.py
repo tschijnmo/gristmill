@@ -303,9 +303,6 @@ class _BaseInfoDict(dict):
         for i in terms:
             base = term_base[i]
 
-            if base not in self:
-                continue
-
             updated.add(base)
 
             if self[base].count > 1:
@@ -1034,8 +1031,8 @@ class _CollectGraph:
 
             self._adjs = new_adjs
 
+            self._base_infos.remove_terms(terms & self._terms, term_base)
             self._terms -= terms
-            self._base_infos.remove_terms(terms, term_base)
 
         # We need to update the maximum biclique when a base is recently updated
         # such that it become exclusively-involved by this graph.
