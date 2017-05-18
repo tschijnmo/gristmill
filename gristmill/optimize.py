@@ -447,10 +447,10 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
             # This could allow bicliques empty in a direction to be augmented by
             # any left or right term.  A value of infinity has to be used to
             # mask the possible non-zero excess costs.
-            deltas.append(SVPoly([np.inf]))
+            deltas.append(_INF_POLY)
         elif n_s[o] == 0:
             # This prevents a dimension get expanded without anything.
-            deltas.append(SVPoly([-np.inf]))
+            deltas.append(_NEG_INF_POLY)
         else:
             deltas.append(n_s[o] * coeffs.final - v)
         continue
@@ -2699,6 +2699,8 @@ _SUMMED_EXT = 1
 _SUMMED = 2
 
 _ZERO_POLY = SVPoly([0])
+_INF_POLY = SVPoly([np.inf])
+_NEG_INF_POLY = SVPoly([-np.inf])
 
 _SUBSTED_EVAL_BASE = Symbol('gristmillSubstitutedEvalBase')
 
