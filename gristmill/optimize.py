@@ -924,12 +924,13 @@ class _CollectGraph:
         else:
             assert right_adj[left].term == term
 
-        self._terms.add(term)
+        if term not in self._terms:
+            self._terms.add(term)
 
-        # We do not need actual cost here.  For optimization purpose, the bases
-        # should always be read from the centralized base infos across all
-        # graphs.
-        self._base_infos.add_base(base, None)
+            # We do not need actual cost here.  For optimization purpose, the
+            # bases should always be read from the centralized base infos across
+            # all graphs.
+            self._base_infos.add_base(base, None)
 
     def get_opt_biclique(
             self, ranges: _Ranges, base_infos: _BaseInfoDict,
