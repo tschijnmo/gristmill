@@ -469,7 +469,7 @@ class _BronKerbosch:
     def __init__(
             self, adjs: _Adjs, base_infos: _BaseInfoDict,
             ranges: _Ranges, greedy_cutoff=-1, drop_cutoff=-1,
-            rush_local=False, rush_global=False
+            rush_local=False, rush_global=False, inaccurate=False
     ):
         """Initialize the iterator."""
 
@@ -482,6 +482,7 @@ class _BronKerbosch:
         self._drop_cutoff = drop_cutoff
         self._rush_local = rush_local
         self._rush_global = rush_global
+        self._inaccurate = inaccurate
 
         # Dynamic data during the recursion.
         #
@@ -549,6 +550,7 @@ class _BronKerbosch:
         curr = self._curr
         terms = self._terms
         bases = self._bases
+        inaccurate = self._inaccurate
 
         # The code here are adapted from the code in NetworkX for maximal clique
         # problem of simple general graphs.  The original code are kept as much
@@ -619,7 +621,7 @@ class _BronKerbosch:
                 assert self._leading_coeff is None
                 self._leading_coeff = leading_edge.coeff
 
-            ns, saving = self._count_stack()
+            ns, saving = self._count_stack(inaccurate=inaccurate)
 
             #
             # adj_q = adj[q]
@@ -641,16 +643,25 @@ class _BronKerbosch:
                 )
 
                 if not if_skip:
-                    # The total saving.
-                    saving = saving.saving - sum_(exc_costs)
-                    if not self._rush_global:
-                        for k, v in self._bases.items():
-                            if v > 0:
-                                saving -= self._base_infos[k].cost * (
-                                    self._base_infos[k].count - v
-                                )
 
-                    if saving > 0:
+                    # The total saving.
+                    if inaccurate:
+                        saving = saving.saving
+                        has_saving = saving > 0
+                        assert has_saving
+                    else:
+                        saving = saving.saving - sum_(exc_costs)
+
+                        if not self._rush_global:
+                            for k, v in self._bases.items():
+                                if v > 0:
+                                    saving -= self._base_infos[k].cost * (
+                                        self._base_infos[k].count - v
+                                    )
+
+                        has_saving = saving > 0
+
+                    if has_saving:
                         yield _Biclique(
                             nodes=curr, leading_coeff=self._leading_coeff,
                             terms=terms, saving=saving
@@ -730,6 +741,7 @@ class _BronKerbosch:
         """
 
         adj = self._adjs[colour][node]
+        inaccurate = self._inaccurate
 
         # The node with the same colour as the new node will not be affected by
         # the new addition.
@@ -759,7 +771,13 @@ class _BronKerbosch:
             res_bases.update(delta.bases)
             res_bases[new_edge.base] += 1
 
-            res_exc_cost = delta.exc_cost + new_edge.exc_cost
+            if inaccurate:
+                if delta.exc_cost != -1 and new_edge.exc_cost == _ZERO_POLY:
+                    res_exc_cost = -1
+                else:
+                    res_exc_cost = delta.exc_cost
+            else:
+                res_exc_cost = delta.exc_cost + new_edge.exc_cost
 
         else:
             res_terms = delta.terms
@@ -775,9 +793,16 @@ class _BronKerbosch:
             else leading_edge.coeff / self._leading_coeff
         )
 
-        res_saving = self._get_delta_saving(
-            saving.deltas[colour], res_exc_cost, res_bases
-        )
+        base_saving = saving.deltas[colour]
+        if inaccurate:
+            if res_exc_cost == -1 or abs(base_saving) == np.inf:
+                res_saving = base_saving
+            else:
+                res_saving = 0
+        else:
+            res_saving = self._get_delta_saving(
+                base_saving, res_exc_cost, res_bases
+            )
 
         res_delta = _Delta(
             coeff=res_coeff, terms=res_terms, bases=res_bases,
@@ -799,7 +824,7 @@ class _BronKerbosch:
                 continue
         return res
 
-    def _count_stack(self):
+    def _count_stack(self, inaccurate=False):
         """Count the current size of the stack.
 
         The saving will also be returned.
@@ -807,7 +832,19 @@ class _BronKerbosch:
         ns = tuple(
             len(self._curr[i][0]) for i in [_LEFT, _RIGHT]
         )
-        saving = _get_collect_saving(self._cost_coeffs, ns)
+        if inaccurate:
+            deltas = []
+            for i, j in zip(ns, reversed(ns)):
+                if i == 0:
+                    deltas.append(np.inf)
+                elif j == 0:
+                    deltas.append(-np.inf)
+                else:
+                    deltas.append(j)
+                continue
+            saving = _Saving(saving=ns[0] * ns[1], deltas=tuple(deltas))
+        else:
+            saving = _get_collect_saving(self._cost_coeffs, ns)
         return ns, saving
 
     def _form_delta(
@@ -934,7 +971,7 @@ class _CollectGraph:
     def get_opt_biclique(
             self, ranges: _Ranges, base_infos: _BaseInfoDict,
             greedy_cutoff=-1, drop_cutoff=-1,
-            rush_local=False, rush_global=False
+            rush_local=False, rush_global=False, inaccurate=False
     ) -> typing.Tuple[typing.Optional[SVPoly], typing.Optional[_Biclique]]:
         """Get the optimal biclique in the current graph.
         """
@@ -951,7 +988,8 @@ class _CollectGraph:
         for biclique in self.gen_bicliques(
                 ranges, base_infos,
                 greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff,
-                rush_local=rush_local, rush_global=rush_global
+                rush_local=rush_local, rush_global=rush_global,
+                inaccurate=inaccurate
         ):
 
             saving = biclique.saving
@@ -990,7 +1028,7 @@ class _CollectGraph:
     def gen_bicliques(
             self, ranges: _Ranges, base_infos: _BaseInfoDict,
             greedy_cutoff=-1, drop_cutoff=-1,
-            rush_local=False, rush_global=False
+            rush_local=False, rush_global=False, inaccurate=False
     ) -> typing.Iterable[_Biclique]:
         """Generate the bicliques within the graph.
 
@@ -1002,7 +1040,8 @@ class _CollectGraph:
         yield from _BronKerbosch(
             self._adjs, base_infos, ranges,
             greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff,
-            rush_local=rush_local, rush_global=rush_global
+            rush_local=rush_local, rush_global=rush_global,
+            inaccurate=inaccurate
         )
 
     def remove_terms(
@@ -2337,6 +2376,7 @@ class _Optimizer:
 
         rush_local = self._strategy & Strategy.RUSH_LOCAL > 0
         rush_global = self._strategy & Strategy.RUSH_GLOBAL > 0
+        inaccurate = self._strategy & Strategy.INACCURATE > 0
 
         opt_saving = None
         opt_ranges = None
@@ -2347,7 +2387,8 @@ class _Optimizer:
                 ranges, base_infos,
                 greedy_cutoff=self._greedy_cutoff,
                 drop_cutoff=self._drop_cutoff,
-                rush_local=rush_local, rush_global=rush_global
+                rush_local=rush_local, rush_global=rush_global,
+                inaccurate=inaccurate
             )
 
             if curr_opt_saving is None:
