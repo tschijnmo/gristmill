@@ -973,10 +973,17 @@ class _CollectGraph:
 
         if opt_saving is None:
             assert opt_biclique is None
-            opt_saving = _ZERO_POLY
+            self._opt_saving = _ZERO_POLY
+            self._opt_biclique = None
+        else:
+            if inaccurate:
+                saving = _get_collect_saving(_get_cost_coeffs(ranges), [
+                    len(i) for i in opt_biclique.nodes
+                ])
+                opt_biclique = opt_biclique._replace(saving=saving)
 
-        self._opt_saving = opt_saving
-        self._opt_biclique = opt_biclique
+            self._opt_saving = opt_saving
+            self._opt_biclique = opt_biclique
 
         return opt_saving, opt_biclique
 
