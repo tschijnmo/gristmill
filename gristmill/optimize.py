@@ -795,10 +795,9 @@ class _BronKerbosch:
 
         base_saving = saving.deltas[colour]
         if inaccurate:
-            if res_exc_cost == -1 or abs(base_saving) == np.inf:
-                res_saving = base_saving
-            else:
-                res_saving = 0
+            res_saving = self._get_inaccurate_delta_saving(
+                base_saving, res_exc_cost, res_bases
+            )
         else:
             res_saving = self._get_delta_saving(
                 base_saving, res_exc_cost, res_bases
@@ -823,6 +822,22 @@ class _BronKerbosch:
                     base_saving -= self._base_infos[k].cost * v
                 continue
         return res
+
+    def _get_inaccurate_delta_saving(self, base_saving, exc_cost, bases):
+        """Get the saving incurred by a delta in inaccurate mode."""
+
+        if exc_cost == -1 or abs(base_saving) == np.inf:
+            res_saving = base_saving
+        else:
+            res_saving = 0
+
+        curbed_by_common = not self._rush_local and any(
+            self._bases[k] - v > 0 for k, v in bases.items()
+        )
+        if curbed_by_common:
+            res_saving = 0
+
+        return res_saving
 
     def _count_stack(self, inaccurate=False):
         """Count the current size of the stack.
