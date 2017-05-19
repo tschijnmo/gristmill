@@ -973,8 +973,10 @@ class _CollectGraph:
 
         if opt_saving is None:
             assert opt_biclique is None
-            self._opt_saving = _ZERO_POLY
-            self._opt_biclique = None
+            opt_saving = _ZERO_POLY
+
+        self._opt_saving = opt_saving
+        self._opt_biclique = opt_biclique
 
         return opt_saving, opt_biclique
 
