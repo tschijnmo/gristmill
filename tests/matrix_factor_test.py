@@ -1,12 +1,17 @@
 """Test of matrix factorization."""
 
+import pytest
+
 from drudge import Range, Drudge
 from sympy import symbols, IndexedBase, Symbol
 
 from gristmill import optimize, verify_eval_seq, get_flop_cost, Strategy
 
 
-def test_matrix_factorization(spark_ctx):
+@pytest.mark.parametrize('strategy', [
+    Strategy.DEFAULT, Strategy.DEFAULT | Strategy.INACCURATE
+])
+def test_matrix_factorization(spark_ctx, strategy):
     """Test a basic matrix multiplication factorization problem.
 
     In this test, there are four matrices involved, X, Y, U, and V.  And they
@@ -60,7 +65,7 @@ def test_matrix_factorization(spark_ctx):
     targets = [target]
 
     # The actual optimization.
-    res = optimize(targets)
+    res = optimize(targets, strategy=strategy)
     assert len(res) == 3
 
     # Test the correctness.
@@ -95,7 +100,7 @@ def test_matrix_factorization(spark_ctx):
     targets = [target]
 
     # The actual optimization.
-    res = optimize(targets)
+    res = optimize(targets, strategy=strategy)
     assert len(res) == 3
 
     # Test the correctness.
