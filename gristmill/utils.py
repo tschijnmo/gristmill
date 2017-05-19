@@ -41,6 +41,18 @@ class SVPoly(Polynomial):
             diff = other - self
             return diff.coef[-1] > 0
 
+    def __gt__(self, other):
+        """Make a greater than comparison.
+
+        Here when we compare with zero, special action is taken, or we just
+        dispatch to the default behaviour.
+        """
+
+        if other is 0:
+            return self.is_positive
+        else:
+            return super().__gt__(other)
+
     @property
     def is_positive(self):
         """Test if a cost is a positive one."""
