@@ -650,7 +650,7 @@ class _BronKerbosch:
                                     self._base_infos[k].count - v
                                 )
 
-                    if saving.is_positive:
+                    if saving > 0:
                         yield _Biclique(
                             nodes=curr, leading_coeff=self._leading_coeff,
                             terms=terms, saving=saving
@@ -719,7 +719,7 @@ class _BronKerbosch:
                 all_[node_key] = res
             continue
 
-        curr = {k: v for k, v in all_.items() if v.saving.is_positive}
+        curr = {k: v for k, v in all_.items() if v.saving > 0}
 
         return all_, curr
 
