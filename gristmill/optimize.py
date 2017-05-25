@@ -36,9 +36,9 @@ class Strategy:
     For the optimization of the single-term contractions, we have
 
     ``GREEDY``
-        The contraction will be optimized greedily.  This should only be used
-        for large inputs where the other strategies cannot finish within a
-        reasonable time.
+        The contraction within each term will be optimized greedily.  This
+        should only be used for inputs having terms containing many factors by a
+        very dense pattern.
 
     ``BEST``
         The global minimum of each tensor contraction will be found by the
@@ -53,7 +53,8 @@ class Strategy:
     ``ALL``
         All possible contraction sequences will be considered for all
         contractions.  This can be extremely slow.  But it might be helpful for
-        manageable problems.
+        problems with a large number of terms all with manageable number of
+        factors.
 
     For the summation factorization, we have
 
@@ -62,7 +63,8 @@ class Strategy:
 
     ``INACCURATE``
         Do not accurately calculate the saving in summation optimization.  This
-        option is not currently used.
+        will skip the exact polynomial arithmetic for the costs and use a
+        special heuristic the estimate the actual saving.
 
     For the common factor optimization, we have
 
