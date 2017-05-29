@@ -75,8 +75,16 @@ class SVPoly(Polynomial):
         return coeff[idx]
 
 
-def form_svpoly(expr: Expr) -> typing.Tuple[SVPoly, typing.Optional[Symbol]]:
-    """Form a single variate polynomial from a SymPy expression."""
+# Type for sizes, or costs, especially for annotation.
+#
+# Primarily, we only use addition, subtraction, multiplication, and order
+# comparison.
+
+Size = typing.Union[int, float, SVPoly]
+
+
+def form_size(expr: Expr) -> typing.Tuple[Size, typing.Optional[Symbol]]:
+    """Form a size object from a SymPy expression."""
 
     symbs = expr.atoms(Symbol)
     n_symbs = len(symbs)
@@ -95,14 +103,19 @@ def form_svpoly(expr: Expr) -> typing.Tuple[SVPoly, typing.Optional[Symbol]]:
         )
 
     if all(i.is_integer for i in coeff_exprs):
-        dtype = np.int_
+        dtype = int
     else:
-        dtype = np.float_
+        dtype = float
 
-    coeffs = np.array(coeff_exprs, dtype=dtype)
-    poly = SVPoly(coeffs)
+    if len(coeff_exprs) > 1:
+        coeffs = np.array(coeff_exprs, dtype=dtype)
+        cost = SVPoly(coeffs)
+    elif len(coeff_exprs) == 1:
+        cost = dtype(coeff_exprs[0])
+    else:
+        assert False
 
-    return poly, symb
+    return cost, symb
 
 
 def get_total_size(sums):
@@ -173,7 +186,7 @@ def form_sized_range(range_: Range, substs) -> typing.Tuple[
     ]
     size_expr = upper - lower
 
-    size, symb = form_svpoly(size_expr)
+    size, symb = form_size(size_expr)
 
     return SizedRange(range_.label, size), symb
 
