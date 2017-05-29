@@ -21,25 +21,22 @@ from sympy import Symbol, Integer, Mul, poly_from_expr, Number, Poly, Expr
 # Numeric cost manipulation during optimization.
 #
 
-@functools.total_ordering
 class SVPoly(Polynomial):
     """Single variate polynomials for sizes and costs.
 
-    The primary thing added to its numpy base class is the total ordering.
+    The primary thing added to its numpy base class is the ordering.  But this
+    ordering has caveats.  Only when comparing with **integer zero**, the
+    leading coefficient and the possible presence of infinity will be checked to
+    see if the size is an asymptotically positive/negative one.  In all other
+    situations, non-negative size will be assumed.  The comparison is going to
+    be based on degree of the polynomial and the lexicographical order of the
+    coefficients.
+
     """
 
     def __lt__(self, other):
         """Make a less than comparison."""
-
-        l_deg = self.degree()
-        r_deg = other.degree()
-        if l_deg < r_deg:
-            return True
-        elif l_deg > r_deg:
-            return False
-        else:
-            diff = other - self
-            return diff.coef[-1] > 0
+        return self._comp(other) < 0
 
     def __gt__(self, other):
         """Make a greater than comparison.
@@ -47,15 +44,27 @@ class SVPoly(Polynomial):
         Here when we compare with zero, special action is taken, or we just
         dispatch to the default behaviour.
         """
+        return self._comp(other) > 0
+
+    def _comp(self, other):
+        """Make a comparison with another size quantity."""
 
         if other is 0:
-            return self.is_positive
-        else:
-            return super().__gt__(other)
+            return self._comp_w_zero()
 
-    @property
-    def is_positive(self):
-        """Test if a cost is a positive one."""
+        l_deg = self.degree()
+        r_deg = other.degree() if isinstance(other, SVPoly) else 0
+
+        if l_deg < r_deg:
+            return -1
+        elif l_deg > r_deg:
+            return 1
+        else:
+            diff = self - other
+            return diff.coef[-1]
+
+    def _comp_w_zero(self):
+        """Test if a cost is a positive/negative one."""
 
         coeff = self.coef
         inf_idxes, = np.where(np.isinf(coeff))
@@ -63,7 +72,7 @@ class SVPoly(Polynomial):
             idx = -1
         else:
             idx = inf_idxes[-1]
-        return coeff[idx] > 0
+        return coeff[idx]
 
 
 def form_svpoly(expr: Expr) -> typing.Tuple[SVPoly, typing.Optional[Symbol]]:
