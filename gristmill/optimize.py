@@ -7,7 +7,6 @@ import types
 import typing
 import warnings
 
-import numpy as np
 from drudge import TensorDef, prod_, Term, Range, sum_
 from sympy import (
     Integer, Symbol, Expr, IndexedBase, Mul, Indexed, primitive, Wild,
@@ -456,10 +455,10 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
             # This could allow bicliques empty in a direction to be augmented by
             # any left or right term.  A value of infinity has to be used to
             # mask the possible non-zero excess costs.
-            deltas.append(np.inf)
+            deltas.append(float('inf'))
         elif n_s[o] == 0:
             # This prevents a dimension get expanded without anything.
-            deltas.append(-np.inf)
+            deltas.append(-float('inf'))
         else:
             deltas.append(n_s[o] * coeffs.final - v)
         continue
@@ -835,7 +834,7 @@ class _BronKerbosch:
     def _get_inaccurate_delta_saving(self, base_saving, exc_cost, bases):
         """Get the saving incurred by a delta in inaccurate mode."""
 
-        if exc_cost == -1 or abs(base_saving) == np.inf:
+        if exc_cost == -1 or abs(base_saving) == float('inf'):
             res_saving = base_saving
         else:
             res_saving = 0
@@ -860,9 +859,9 @@ class _BronKerbosch:
             deltas = []
             for i, j in zip(ns, reversed(ns)):
                 if i == 0:
-                    deltas.append(np.inf)
+                    deltas.append(float('inf'))
                 elif j == 0:
-                    deltas.append(-np.inf)
+                    deltas.append(-float('inf'))
                 else:
                     deltas.append(j)
                 continue
