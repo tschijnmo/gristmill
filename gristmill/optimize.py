@@ -51,10 +51,9 @@ class Strategy:
         will be kept and considered in subsequent summation optimizations.
 
     ``ALL``
-        All possible contraction sequences will be considered for all
-        contractions.  This can be extremely slow.  But it might be helpful for
-        problems with a large number of terms all with manageable number of
-        factors.
+        All possible contraction sequences will be considered for all terms.
+        This can be extremely slow.  But it might be helpful for problems having
+        terms all with manageable number of factors.
 
     For the summation factorization, we have
 
@@ -63,8 +62,8 @@ class Strategy:
 
     ``INACCURATE``
         Do not accurately calculate the saving in summation optimization.  This
-        will skip the exact polynomial arithmetic for the costs and use a
-        special heuristic the estimate the actual saving.
+        will skip the exact arithmetic for the costs and use a special heuristic
+        the estimate the actual saving.
 
     For the common factor optimization, we have
 
@@ -87,6 +86,10 @@ class Strategy:
     INACCURATE = 1 << 3
 
     COMMON = 1 << 4
+
+    # Internal options, not useful for users.  If evaluations with negative
+    # local/global saving will be considered.  They turn out to be not quite
+    # useful and is pending removal.
 
     RUSH_LOCAL = 1 << 5
     RUSH_GLOBAL = 1 << 6
