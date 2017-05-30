@@ -141,10 +141,8 @@ def test_ccsd_doubles(parthole_drudge):
     )
     targets = [tensor]
 
-    no = 1000
-
     all_eval_seq = optimize(
-        targets, substs={p.no: no, p.nv: no * 10},
+        targets, substs={p.nv: p.no * 10},
         strategy=Strategy.ALL | Strategy.SUM | Strategy.COMMON
     )
 
@@ -214,6 +212,11 @@ def test_ccsd_doubles_complex_terms(parthole_drudge):
 
     b_term = dr.einst(b_[a, b, c, d] * tau[c, d, i, j])
 
+    substs = {
+        p.no: 1000,
+        p.nv: 1100
+    }
+
     # Simple a term or b term should work well both with full backtrack and
     # greedily.
     for term in [a_term, b_term]:
@@ -221,7 +224,7 @@ def test_ccsd_doubles_complex_terms(parthole_drudge):
         targets = [tensor]
         for drop_cutoff in [-1, 2]:
             eval_seq = optimize(
-                targets, substs={p.nv: p.no * 1.1},
+                targets, substs=substs,
                 strategy=Strategy.ALL | Strategy.SUM | Strategy.COMMON,
                 drop_cutoff=drop_cutoff
             )
