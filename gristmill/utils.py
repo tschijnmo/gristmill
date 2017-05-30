@@ -2,6 +2,7 @@
 
 import collections
 import functools
+import operator
 import re
 import typing
 
@@ -116,6 +117,16 @@ def form_size(expr: Expr) -> typing.Tuple[Size, typing.Optional[Symbol]]:
         assert False
 
     return cost, symb
+
+
+def mul_sizes(sizes):
+    """Multiply sizes in an iterable together.
+
+    The multiplication is going to be based on integer unity, with the actual
+    type of the result determined by the result of the multiplication
+    operations.
+    """
+    return functools.reduce(operator.mul, sizes, 1)
 
 
 def get_total_size(sums):
