@@ -122,7 +122,8 @@ def test_ccsd_doubles(parthole_drudge):
 
     The purpose of this test is similar to the CCSD energy test.  Just here the
     more complexity about the external indices necessitates using ``ALL``
-    strategy for optimization.
+    strategy for optimization.  Also the usage of fully-given numeric size is
+    also tested here.
     """
 
     dr = parthole_drudge
@@ -140,8 +141,10 @@ def test_ccsd_doubles(parthole_drudge):
     )
     targets = [tensor]
 
+    no = 1000
+
     all_eval_seq = optimize(
-        targets, substs={p.nv: p.no * 10},
+        targets, substs={p.no: no, p.nv: no * 10},
         strategy=Strategy.ALL | Strategy.SUM | Strategy.COMMON
     )
 
