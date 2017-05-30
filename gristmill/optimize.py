@@ -107,8 +107,9 @@ def optimize(
     """Optimize the valuation of the given tensor contractions.
 
     This function will transform the given computations, given as tensor
-    definitions, into another list computations mathematically equivalent to the
-    given computation while requiring less floating-point operations (FLOPs).
+    definitions, into another list of computations mathematically equivalent to
+    the given computation while requiring less floating-point operations
+    (FLOPs).
 
     Parameters
     ----------
@@ -119,7 +120,13 @@ def optimize(
     substs
         A dictionary for making substitutions inside the sizes of ranges.  All
         the ranges need to have size in at most one undetermined variable after
-        the substitution so that they can be totally ordered.
+        the substitution, so that they can be totally ordered.  When one symbol
+        still remains in the sizes, the asymptotic cost (scaling and prefactor)
+        will be optimized.  Or when all symbols are gone after the substitution,
+        optimization is going to be based on the numeric sizes.  Numeric sizes
+        tend to make the optimization faster due to the usage of built-in
+        integer or floating point arithmetic in lieu of the more complex
+        polynomial arithmetic.
 
     interm_fmt
         The format for the names of the intermediates.
