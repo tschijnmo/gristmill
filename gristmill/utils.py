@@ -39,12 +39,12 @@ class SVPoly(Polynomial):
         return self._comp(other) < 0
 
     def __gt__(self, other):
-        """Make a greater than comparison.
-
-        Here when we compare with zero, special action is taken, or we just
-        dispatch to the default behaviour.
-        """
+        """Make a greater than comparison."""
         return self._comp(other) > 0
+
+    def __eq__(self, other):
+        """Make an equality comparison."""
+        return self._comp(other) == 0
 
     def _comp(self, other):
         """Make a comparison with another size quantity."""
