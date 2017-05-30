@@ -16,7 +16,7 @@ from sympy import (
 from sympy.utilities.iterables import multiset_partitions
 
 from .utils import (
-    get_total_size, DSF, Tuple4Cmp, form_sized_range, SVPoly
+    Size, get_total_size, mul_sizes, DSF, Tuple4Cmp, form_sized_range
 )
 
 
@@ -431,7 +431,7 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
     assert len(n_s) == 2
     assert len(coeffs.preps) == 2
 
-    n_terms = prod_(n_s)
+    n_terms = mul_sizes(n_s)
 
     saving = (n_terms - 1) * coeffs.final - sum(
         (i - 1) * j
@@ -446,10 +446,10 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
             # This could allow bicliques empty in a direction to be augmented by
             # any left or right term.  A value of infinity has to be used to
             # mask the possible non-zero excess costs.
-            deltas.append(_INF_POLY)
+            deltas.append(np.inf)
         elif n_s[o] == 0:
             # This prevents a dimension get expanded without anything.
-            deltas.append(_NEG_INF_POLY)
+            deltas.append(-np.inf)
         else:
             deltas.append(n_s[o] * coeffs.final - v)
         continue
@@ -649,7 +649,7 @@ class _BronKerbosch:
                         has_saving = saving > 0
                         assert has_saving
                     else:
-                        saving = saving.saving - sum_(exc_costs)
+                        saving = saving.saving - sum(exc_costs)
 
                         if not self._rush_global:
                             for k, v in self._bases.items():
@@ -771,7 +771,7 @@ class _BronKerbosch:
             res_bases[new_edge.base] += 1
 
             if inaccurate:
-                if delta.exc_cost != -1 and new_edge.exc_cost == _ZERO_POLY:
+                if delta.exc_cost != -1 and new_edge.exc_cost == 0:
                     res_exc_cost = -1
                 else:
                     res_exc_cost = delta.exc_cost
@@ -812,7 +812,7 @@ class _BronKerbosch:
 
         return res_delta
 
-    def _get_delta_saving(self, base_saving, exc_cost, bases) -> SVPoly:
+    def _get_delta_saving(self, base_saving, exc_cost, bases) -> Size:
         """Get the saving incurred by applying a given delta."""
         res = base_saving - exc_cost
         if not self._rush_local:
@@ -945,8 +945,8 @@ class _CollectGraph:
         self._base_infos = _BaseInfoDict()
 
         # The optimal biclique in the current graph.  None when it is not yet
-        # determined,  _ZERO_POLY when it is determined that there is no
-        # profitable biclique in the current graph.
+        # determined,  zero when it is determined that there is no profitable
+        # biclique in the current graph.
         self._opt_saving = None
         self._opt_biclique = None
 
@@ -987,12 +987,12 @@ class _CollectGraph:
             self, ranges: _Ranges, base_infos: _BaseInfoDict,
             greedy_cutoff=-1, drop_cutoff=-1,
             rush_local=False, rush_global=False, inaccurate=False
-    ) -> typing.Tuple[typing.Optional[SVPoly], typing.Optional[_Biclique]]:
+    ) -> typing.Tuple[typing.Optional[Size], typing.Optional[_Biclique]]:
         """Get the optimal biclique in the current graph.
         """
 
         if self._opt_saving is not None:
-            if self._opt_saving == _ZERO_POLY:
+            if self._opt_saving == 0:
                 return None, None
             else:
                 return self._opt_saving, self._opt_biclique
@@ -1026,7 +1026,7 @@ class _CollectGraph:
 
         if opt_saving is None:
             assert opt_biclique is None
-            self._opt_saving = _ZERO_POLY
+            self._opt_saving = 0
             self._opt_biclique = None
         else:
             if inaccurate:
@@ -1126,7 +1126,7 @@ _Part = collections.namedtuple('_Part', [
 ])
 
 
-def _get_prod_final_cost(exts_total_size, sums_total_size) -> SVPoly:
+def _get_prod_final_cost(exts_total_size, sums_total_size) -> Size:
     """Compute the final cost for a pairwise product evaluation."""
 
     if sums_total_size == 1:
@@ -2453,7 +2453,7 @@ class _Optimizer:
         )
 
         # Make phony optimization of the intermediate.
-        eval_node.total_cost = _UNITY
+        eval_node.total_cost = 1
         eval_node.evals = [eval_node]
 
         return expr
@@ -2762,10 +2762,6 @@ _NEG_UNITY = Integer(-1)
 _EXT = 0
 _SUMMED_EXT = 1
 _SUMMED = 2
-
-_ZERO_POLY = SVPoly([0])
-_INF_POLY = SVPoly([np.inf])
-_NEG_INF_POLY = SVPoly([-np.inf])
 
 _SUBSTED_EVAL_BASE = Symbol('gristmillSubstitutedEvalBase')
 
