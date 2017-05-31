@@ -745,14 +745,16 @@ class _BronKerbosch:
     def _update_delta(
             self, new_colour, new_node, saving, colour, node, delta
     ) -> typing.Optional[_Delta]:
-        """Update the delta when the given new delta is just applied.
+        """Update the delta when a new node is added to the stack.
+
+        This is the performance bottleneck of the Bron-Kerbosch algorithm.
         """
 
         adj = self._adjs[colour][node]
         inaccurate = self._inaccurate
 
-        # The node with the same colour as the new node will not be affected by
-        # the new addition.
+        # Most basic filtering.  The node with the same colour as the new node
+        # will not be affected by the new addition.
         if colour != new_colour and new_node not in adj:
             return None
 
