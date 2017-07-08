@@ -2510,10 +2510,10 @@ class _Optimizer:
         if n_factors < 2:
             assert n_factors == 1
             prod_node.evals.append(prod_node)
-            prod_node.total_cost = _get_prod_final_cost(
-                get_total_size(prod_node.exts),
-                get_total_size(prod_node.sums)
-            )
+            sums_size = get_total_size(prod_node.sums)
+            prod_node.total_cost = (
+                get_total_size(prod_node.exts) * sums_size
+            ) if sums_size != 1 else 0
             return
 
         strategy = self._strategy & Strategy.PROD_MASK
