@@ -333,106 +333,69 @@ class DSF(object):
     structure for finding the inseparable chunks of factors for given ranges to
     keep.  Heuristics of union by rank and path compression are both applied.
 
-    Attributes
-    ----------
-
-    _contents
-        The original contents of the nodes.  The object that was used for
-        building the node.  Note that this class is designed with hashable and
-        simple things like integers in mind.
-
-    _parents
-        The parent of the nodes.  Given as index in the contents list.
-
-    _ranks
-        The rank of the nodes.
-
-    _locs
-        The dictionary mapping the contents of the nodes into its location in
-        this data structure.
-
     """
 
-    def __init__(self, contents):
+    def __init__(self, n_elems):
         """Initialize the object.
 
         Parameters
         ----------
 
-        contents
-            An iterable of the contents of the nodes.
+        n_elems
+
+            The number of elements in the forest.
         """
 
-        self._contents = []
-        self._ranks = []
-        self._parents = []
-        self._locs = {}
-
-        for i, v in enumerate(contents):
-            self._contents.append(v)
-            self._ranks.append(0)
-            self._parents.append(i)
-            self._locs[v] = i
-            continue
+        self._n_elems = n_elems
+        self._ranks = [0] * n_elems
+        self._parents = list(range(n_elems))
+        self._n_sets = n_elems
 
     def union(self, contents):
-        """Put the given contents into union.
-
-        Note that the nodes to be unioned are given in terms of their contents
-        rather than their index. Also contents missing in the forest will just
-        be **ignored**, which is what is needed for the case of inseparable
-        chunk finding.
+        """Put the given elements into union.
 
         Parameters
         ----------
 
         contents
-            An iterable of the contents that are going to be put into the same
-            set.
+            An iterable of the element indices that are going to be put into the
+            same set.
 
         """
 
         represent = None  # The set that other sets will be unioned to.
         for i in contents:
 
-            try:
-                loc = self._locs[i]
-            except KeyError:
-                continue
-
             if represent is None:
-                represent = loc
+                represent = i
             else:
-                self._union_idxes(represent, loc)
+                self.union_two(represent, i)
 
             continue
 
         return None
 
+    def __iter__(self):
+        """Iterate over the indices of all points in the forest."""
+        return iter(range(self._n_elems))
+
     @property
-    def sets(self):
-        """The disjoints sets as actual sets.
-
-        This property will convert the disjoint sets in the internal data
-        structure into an actual list of sets.  A list of sets will be given,
-        where each set contains the contents of the nodes in the subset.
+    def n_sets(self):
+        """The number of sets in the forest.
         """
+        return self._n_sets
 
-        # A dictionary with the set representative *index* as key and the
-        # sets of the *contents* in the subset as values.
-        sets_dict = collections.defaultdict(set)
+    def union_two(self, idx1, idx2):
+        """Union the two subsets that the two given indices are in."""
 
-        for i, v in enumerate(self._contents):
-            sets_dict[self._find_set(i)].add(v)
-            continue
+        set1 = self.find(idx1)
+        set2 = self.find(idx2)
 
-        return list(sets_dict.values())
+        if set1 == set2:
+            return
 
-    def _union_idxes(self, idx1, idx2):
-        """Union the subsets that the two given indices are in."""
+        self._n_sets -= 1
 
-        set1 = self._find_set(idx1)
-        set2 = self._find_set(idx2)
         rank1 = self._ranks[set1]
         rank2 = self._ranks[set2]
 
@@ -444,12 +407,12 @@ class DSF(object):
             if rank1 == rank2:
                 self._ranks[set2] += 1
 
-    def _find_set(self, idx):
-        """Find the representative index of the subset the given index is in."""
+    def find(self, idx):
+        """Find the root index of the subset the given index is in."""
 
         parent = self._parents[idx]
         if idx != parent:
-            self._parents[idx] = self._find_set(parent)
+            self._parents[idx] = self.find(parent)
         return self._parents[idx]
 
 
