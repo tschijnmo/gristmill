@@ -1334,7 +1334,7 @@ class _Optimizer:
                 raise ValueError(
                     'Invalid term to optimize', term, 'expecting scalar'
                 )
-            sums = self._proc_sums(term.sums, substs)
+            sums = self._proc_sums(term.sums, substs, sort=True)
             amp = term.amp
 
             # Add the true free symbols to the exclusion set.
@@ -1348,7 +1348,7 @@ class _Optimizer:
             exts=exts, terms=terms
         )
 
-    def _proc_sums(self, sums, substs):
+    def _proc_sums(self, sums, substs, sort=False):
         """Process a summation list.
 
         The ranges will be replaced with substituted sizes.  Relevant members of
@@ -1383,6 +1383,9 @@ class _Optimizer:
 
             res.append((symb, new_range))
             continue
+
+        if sort:
+            res.sort(key=lambda x: x[1].size)
 
         return tuple(res)
 
