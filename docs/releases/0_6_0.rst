@@ -1,0 +1,13 @@
+0.5.0
+~~~~~
+
+The primarily focus of this release is the optimization for problems with terms
+composed of a large number of factors.  The contraction optimization algorithm
+has been upgraded with bits replacing hash tables for storing and manipulating
+factor/summation sets.  Significant improvements in performance can be seen in
+problems with say 20 factors.
+
+A minor new feature is the addition of an option to disable the inlining of
+shallow intermediates in the optimizer.  This can be used in cases where the
+default behaviour is undesired.
+
