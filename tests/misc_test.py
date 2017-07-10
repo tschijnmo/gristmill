@@ -1,9 +1,32 @@
 """Test optimization of different special kinds of tensors."""
 
+import pytest
 from drudge import Drudge, Range
 from sympy import symbols, IndexedBase, conjugate
 
 from gristmill import optimize, verify_eval_seq, get_flop_cost
+
+
+@pytest.fixture(scope='module')
+def simple_drudge(spark_ctx):
+    """Make simple drudge.
+
+    This fixture gives a simple drudge with a simple range and a few dummies.
+    """
+
+    dr = Drudge(spark_ctx)
+
+    n = symbols('n')
+    r = Range('r', 0, n)
+    dumms = symbols('a b c d e f g h')
+    dr.set_dumms(r, dumms)
+    dr.add_default_resolver(r)
+
+    dr.n = n
+    dr.r = r
+    dr.ds = dumms
+
+    return dr
 
 
 def test_simple_scalar_optimization(spark_ctx):
@@ -21,17 +44,13 @@ def test_simple_scalar_optimization(spark_ctx):
     assert verify_eval_seq(eval_seq, targets)
 
 
-def test_conjugation_optimization(spark_ctx):
+def test_conjugation_optimization(simple_drudge):
     """Test optimization of expressions containing complex conjugate.
     """
 
-    dr = Drudge(spark_ctx)
+    dr = simple_drudge
 
-    n = symbols('n')
-    r = Range('r', 0, n)
-    a, b, c, d = symbols('a b c d')
-    dr.set_dumms(r, [a, b, c, d])
-    dr.add_default_resolver(r)
+    a, b, c, d = dr.ds[:4]
 
     p = IndexedBase('p')
     x = IndexedBase('x')
@@ -45,20 +64,16 @@ def test_conjugation_optimization(spark_ctx):
     assert verify_eval_seq(eval_seq, targets)
 
 
-def test_optimization_handles_coeffcients(spark_ctx):
+def test_optimization_handles_coeffcients(simple_drudge):
     """Test optimization of scalar intermediates scaled by coefficients.
 
     This test comes from PoST theory.  It tests the optimization of tensor
     evaluations with scalar intermediates scaled by a factor.
     """
 
-    dr = Drudge(spark_ctx)
+    dr = simple_drudge
 
-    n = symbols('n')
-    r = Range('r', 0, n)
-    a, b = symbols('a b')
-    dr.set_dumms(r, [a, b])
-    dr.add_default_resolver(r)
+    a, b = dr.ds[:2]
 
     r = IndexedBase('r')
     eps = IndexedBase('epsilon')
@@ -71,21 +86,17 @@ def test_optimization_handles_coeffcients(spark_ctx):
     assert verify_eval_seq(eval_seq, targets)
 
 
-def test_optimization_handles_scalar_intermediates(spark_ctx):
+def test_optimization_handles_scalar_intermediates(simple_drudge):
     """Test optimization of scalar intermediates scaling other tensors.
 
     This is set as a special test primarily since it would entail the same
     collectible giving residues with different ranges.
     """
 
-    dr = Drudge(spark_ctx)
+    dr = simple_drudge
 
-    n = symbols('n')
-    r = Range('r', 0, n)
-    dumms = symbols('a b c d e')
-    dr.set_dumms(r, dumms)
-    a, b, c = dumms[:3]
-    dr.add_default_resolver(r)
+    r = dr.r
+    a, b, c = dr.ds[:3]
 
     u = IndexedBase('u')
     eps = IndexedBase('epsilon')
@@ -101,20 +112,16 @@ def test_optimization_handles_scalar_intermediates(spark_ctx):
     assert verify_eval_seq(eval_seq, targets)
 
 
-def test_optimization_handles_nonlinear_factors(spark_ctx):
+def test_optimization_handles_nonlinear_factors(simple_drudge):
     """Test optimization of with nonlinear factors.
 
     Here a factor is the square of an indexed quantity.
     """
 
-    dr = Drudge(spark_ctx)
+    dr = simple_drudge
 
-    n = symbols('n')
-    r = Range('r', 0, n)
-    dumms = symbols('a b c d e f g h')
-    dr.set_dumms(r, dumms)
-    a, b, c, d = dumms[:4]
-    dr.add_default_resolver(r)
+    r = dr.r
+    a, b, c, d = dr.ds[:4]
 
     u = symbols('u')
     s = IndexedBase('s')
@@ -128,18 +135,13 @@ def test_optimization_handles_nonlinear_factors(spark_ctx):
     assert verify_eval_seq(eval_seq, targets)
 
 
-def test_common_summation_intermediate_recognition(spark_ctx):
+def test_common_summation_intermediate_recognition(simple_drudge):
     """Test recognition of summation intermediate differing only in a scalar.
     """
 
-    dr = Drudge(spark_ctx)
+    dr = simple_drudge
 
-    n = symbols('n')
-    r = Range('r', 0, n)
-    dumms = symbols('a b c d e f g h')
-    dr.set_dumms(r, dumms)
-    a, b, c = dumms[:3]
-    dr.add_default_resolver(r)
+    a, b, c = dr.ds[:3]
 
     x = IndexedBase('x')
     y = IndexedBase('y')
@@ -175,18 +177,13 @@ def test_common_summation_intermediate_recognition(spark_ctx):
         assert len(eval_seq) == 3
 
 
-def test_get_cost_on_zero_cost(spark_ctx):
+def test_get_cost_on_zero_cost(simple_drudge):
     """Test correct behaviour of get_flop_cost at input with no FLOP cost.
     """
 
-    dr = Drudge(spark_ctx)
+    dr = simple_drudge
 
-    n = symbols('n')
-    r = Range('r', 0, n)
-    dumms = symbols('a b')
-    dr.set_dumms(r, dumms)
-    a, b = dumms[:3]
-    dr.add_default_resolver(r)
+    a, b = dr.ds[:2]
 
     x = IndexedBase('x')
     r = IndexedBase('y')
