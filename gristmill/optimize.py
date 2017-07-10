@@ -1995,6 +1995,8 @@ class _Optimizer:
         evaluations.
         """
 
+        # For node with known evaluations, skip actual optimization.  This
+        # enables the acceleration from dynamic programming.
         if len(node.evals) > 0:
             return node
 
@@ -2522,7 +2524,9 @@ class _Optimizer:
         """Optimize the product evaluation node.
         """
 
+        # This function should not be called on an already-optimized node.
         assert len(prod_node.evals) == 0
+
         n_factors = len(prod_node.factors)
 
         if n_factors < 2:
