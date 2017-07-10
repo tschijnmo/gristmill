@@ -12,7 +12,6 @@ from sympy import (
     Integer, Symbol, Expr, IndexedBase, Mul, Indexed, primitive, Wild,
     default_sort_key, Pow
 )
-from sympy.utilities.iterables import multiset_partitions
 
 from .utils import (
     Size, get_total_size, mul_sizes, DSF, Tuple4Cmp, form_sized_range
@@ -2586,158 +2585,191 @@ class _Optimizer:
     def _gen_factor_parts(self, prod_node: _Prod):
         """Generate all the partitions of factors in a product node."""
 
+        #
         # Compute things invariant to different summations for performance.
+        #
+
         exts = prod_node.exts
         exts_total_size = get_total_size(exts)
+        factors = prod_node.factors
+        sums = prod_node.sums
 
-        factor_atoms = [
-            i.atoms(Symbol) for i in prod_node.factors
-        ]
-        sum_involve = [
-            {j for j, v in enumerate(factor_atoms) if i in v}
-            for i, _ in prod_node.sums
-        ]
-
-        dumm2index = tuple(
+        ext2idx, sum2idx = tuple(
             {v[0]: j for j, v in enumerate(i)}
-            for i in [prod_node.exts, prod_node.sums]
+            for i in (prod_node.exts, sums)
         )
-        # Indices of external and internal dummies involved by each factors.
-        factor_infos = [
-            tuple(
-                set(i[j] for j in atoms if j in i)
-                for i in dumm2index
-            )
-            for atoms in factor_atoms
-        ]
 
-        # Actual generation.
-        for broken_size, kept in self._gen_kept_sums(prod_node.sums):
-            broken_sums = [i for i, j in zip(prod_node.sums, kept) if not j]
+        # Factors involving each of the summations, as iterable lists.
+        sum_infos = [[] for _ in range(len(sum2idx))]
+
+        # Ext and sum involvements of factors.
+        factor_infos = [[0, 0] for _ in factors]
+
+        for i, v in enumerate(factors):
+            for j in v.atoms(Symbol):
+                if j in sum2idx:
+                    sum_idx = sum2idx[j]
+                    sum_infos[sum_idx].append(i)
+                    factor_infos[i][1] |= 1 << sum_idx
+                elif j in ext2idx:
+                    factor_infos[i][0] |= 1 << ext2idx[j]
+                else:
+                    pass
+
+        #
+        # Actual two-level generation.
+        #
+
+        for broken_size, broken in self._gen_broken_sums(sums):
+            broken_sums = [
+                v for i, v in enumerate(sums) if broken & (1 << i)
+            ]  # Sums to be retained in the evaluation.
             final_cost = _get_prod_final_cost(
                 exts_total_size, broken_size
             )
             yield final_cost, broken_sums, self._gen_parts_w_kept_sums(
-                prod_node, kept, sum_involve, factor_infos
+                prod_node, broken, sum_infos, factor_infos
             )
             continue
 
     @staticmethod
-    def _gen_kept_sums(sums):
-        """Generate kept summations in increasing size of broken summations.
+    def _gen_broken_sums(sums):
+        """Generate broken summations in increasing size of broken summations.
 
-        The results will be given as boolean array giving if the corresponding
-        entry is to be kept.
+        The size and the actual subset of broken summations are generated.
         """
 
-        sizes = [i.size for _, i in sums]
+        sizes = [i.size for _, i in sums]  # Sizes are assumed to be sorted.
         n_sums = len(sizes)
 
-        def get_size(kept):
-            """Wrap the kept summation with its size."""
-            size = prod_(
-                i for i, j in zip(sizes, kept) if not j
-            )
-            return Tuple4Cmp((size, kept))
-
-        init = [True] * n_sums  # Everything is kept.
-        queue = [get_size(init)]
+        init = Tuple4Cmp((1, 0))  # Nothing is broken.
+        queue = [init]
         while len(queue) > 0:
             curr = heapq.heappop(queue)
             yield curr
-            curr_kept = curr[1]
-            for i in range(n_sums):
-                if curr_kept[i]:
-                    new_kept = list(curr_kept)
-                    new_kept[i] = False
-                    heapq.heappush(queue, get_size(new_kept))
-                    continue
-                else:
-                    break
+            curr_size, curr_broken = curr
+            next_idx = curr_broken.bit_length()
+            if next_idx < n_sums:
+                joined_size = curr_size * sizes[next_idx]
+                joined_set = curr_broken | 1 << next_idx
+                heapq.heappush(queue, Tuple4Cmp((
+                    joined_size, joined_set
+                )))
+                if next_idx > 0:
+                    top_idx = next_idx - 1
+                    new_size, rem = divmod(joined_size, sizes[top_idx])
+                    assert rem == 0
+                    assert joined_set & 1 << top_idx
+                    heapq.heappush(queue, Tuple4Cmp((
+                        new_size, joined_set ^ 1 << top_idx
+                    )))
             continue
 
     def _gen_parts_w_kept_sums(
-            self, prod_node: _Prod, kept, sum_involve, factor_infos
+            self, prod_node: _Prod, broken, sum_infos, factor_infos
     ):
         """Generate all partitions with given summations kept.
 
-        First we the factors are divided into chunks indivisible according to
+        First the factors are divided into chunks indivisible according to
         the kept summations.  Then their bipartitions which really break the
         broken sums are generated.
         """
 
-        dsf = DSF(i for i, _ in enumerate(factor_infos))
+        n_factors = len(factor_infos)
 
-        for i, j in zip(kept, sum_involve):
-            if i:
-                dsf.union(j)
+        dsf = DSF(n_factors)
+
+        for i, v in enumerate(sum_infos):
+            if not (broken & 1 << i):
+                dsf.union(v)
             continue
 
-        chunks = dsf.sets
-        if len(chunks) < 2:
+        if dsf.n_sets < 2:
             return
 
-        for part in self._gen_parts_from_chunks(kept, chunks, sum_involve):
-            assert len(part) == 2
-            yield tuple(
-                self._form_part(prod_node, i, sum_involve, factor_infos)
-                for i in part
-            )
+        # The sums, externals, and factors involved by each chunks.
+        sums = []
+        factors = []
+        exts = []
+        # Map root factors to the indices of the chunk in the above lists.
+        indices = {}
+        index = 0
+
+        for i in dsf:
+            root = dsf.find(i)
+            if root not in indices:
+                indices[root] = index
+                index += 1
+                factors.append(0)
+                sums.append(0)
+                exts.append(0)
+
+            chunk = indices[root]
+            factors[chunk] |= 1 << i
+            exts[chunk] |= factor_infos[i][0]
+            sums[chunk] |= factor_infos[i][1]
+
+            continue
+
+        # Loop over bipartitions of the indivisble chunks.
+
+        n_chunks = index
+        for p1 in range(1, 2 ** n_chunks - 1, 2):
+
+            # Get the sums in the two chunks first.
+            sums1, sums2 = 0, 0
+            for i in range(n_chunks):
+                if p1 & 1 << i:
+                    sums1 |= sums[i]
+                else:
+                    sums2 |= sums[i]
+                continue
+
+            if all(i & broken == broken for i in (sums1, sums2)):
+
+                # Only now we get the factors and the externals.
+                factors1, factors2 = 0, 0
+                exts1, exts2 = 0, 0
+                for i in range(n_chunks):
+                    if p1 & 1 << i:
+                        factors1 |= factors[i]
+                        exts1 |= exts[i]
+                    else:
+                        factors2 |= factors[i]
+                        exts2 |= exts[i]
+                    continue
+
+                yield tuple(
+                    self._form_part(prod_node, broken, *i) for i in [
+                        (exts1, sums1, factors1), (exts2, sums2, factors2)
+                    ]
+                )
 
         return
 
-    @staticmethod
-    def _gen_parts_from_chunks(kept, chunks, sum_involve):
-        """Generate factor partitions from chunks.
-
-        Here special care is taken to respect the broken summations in the
-        result.
-        """
-
-        n_chunks = len(chunks)
-
-        for chunks_part in multiset_partitions(n_chunks, m=2):
-            factors_part = tuple(set(
-                factor_i for chunk_i in chunk_part_i
-                for factor_i in chunks[chunk_i]
-            ) for chunk_part_i in chunks_part)
-
-            for i, v in enumerate(kept):
-                if v:
-                    continue
-                # Now we have broken sum, it need to be involved by both parts.
-                involve = sum_involve[i]
-                if any(part.isdisjoint(involve) for part in factors_part):
-                    break
-            else:
-                yield factors_part
-
-    def _form_part(self, prod_node, factor_idxes, sum_involve, factor_infos):
+    def _form_part(self, prod_node, broken, exts, sums, factors):
         """Form a partition for the given factors."""
 
-        involved_exts, involved_sums = [
-            set.union(*[factor_infos[i][label] for i in factor_idxes])
-            for label in [0, 1]
+        factors_list = [
+            v for i, v in enumerate(prod_node.factors) if factors & 1 << i
         ]
-
-        factors = [prod_node.factors[i] for i in factor_idxes]
-        exts = [
-            v
-            for i, v in enumerate(prod_node.exts)
-            if i in involved_exts
+        exts_list = [
+            v for i, v in enumerate(prod_node.exts) if exts & 1 << i
         ]
-        sums = []
+        sums_list = []
 
         for i, v in enumerate(prod_node.sums):
-            if sum_involve[i].isdisjoint(factor_idxes):
+            mask = 1 << i
+            if not (sums & mask):
+                # Sums not involved.
                 continue
-            elif sum_involve[i] <= factor_idxes:
-                sums.append(v)
+            elif broken & mask:
+                exts_list.append(v)
             else:
-                exts.append(v)
+                sums_list.append(v)
             continue
 
-        ref, node = self._form_prod_interm(exts, sums, factors)
+        ref, node = self._form_prod_interm(exts_list, sums_list, factors_list)
         return _Part(ref=ref, node=node)
 
     def _form_prod_eval(
