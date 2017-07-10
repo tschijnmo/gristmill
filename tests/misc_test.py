@@ -177,6 +177,35 @@ def test_common_summation_intermediate_recognition(simple_drudge):
         assert len(eval_seq) == 3
 
 
+def test_removal_of_shallow_interms(simple_drudge):
+    """Test if removal of shallow intermediates can be turned on/off."""
+
+    dr = simple_drudge
+
+    r = dr.r
+    a, b, c, d = dr.ds[:4]
+
+    x = IndexedBase('x')
+    y = IndexedBase('y')
+    z = IndexedBase('z')
+    u = IndexedBase('u')
+
+    targets = [
+        dr.define(
+            u, (a, r), (b, r), (c, r),
+            dr.sum((d, r), x[a, d] * y[b, d] * z[c, d])
+        )
+    ]
+
+    for i in [True, False]:
+        eval_seq = optimize(targets, remove_shallow=i)
+        verify_eval_seq(eval_seq, targets)
+        assert len(eval_seq) == (
+            1 if i else 2
+        )
+        continue
+
+
 def test_get_cost_on_zero_cost(simple_drudge):
     """Test correct behaviour of get_flop_cost at input with no FLOP cost.
     """
