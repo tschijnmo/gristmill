@@ -100,7 +100,7 @@ class Strategy:
 def optimize(
         computs: typing.Iterable[TensorDef], substs=None, interm_fmt='tau^{}',
         simplify=True, strategy=Strategy.DEFAULT, greedy_cutoff=-1,
-        drop_cutoff=-1
+        drop_cutoff=-1, remove_shallow=True
 ) -> typing.List[TensorDef]:
     """Optimize the valuation of the given tensor contractions.
 
@@ -151,6 +151,13 @@ def optimize(
         degeneracy, while results could be less optimized.  For large inputs, a
         value of ``2`` is advised.
 
+    remove_shallow
+
+        Shallow intermediates are outer-product intermediates that come with no
+        summations.  Normally these intermediates cannot give saving big enough
+        to justify their memory usage.  So by default, they just dropped, with
+        their content inlined into places where they are referenced.
+
     """
 
     substs = {} if substs is None else substs
@@ -167,7 +174,8 @@ def optimize(
 
     opt = _Optimizer(
         computs, substs=substs, interm_fmt=interm_fmt, strategy=strategy,
-        greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff
+        greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff,
+        remove_shallow=remove_shallow
     )
 
     return opt.optimize()
@@ -1246,7 +1254,7 @@ class _Optimizer:
 
     def __init__(
             self, computs, substs, interm_fmt, strategy,
-            greedy_cutoff=-1, drop_cutoff=-1
+            greedy_cutoff=-1, drop_cutoff=-1, remove_shallow=True
     ):
         """Initialize the optimizer."""
 
@@ -1278,6 +1286,7 @@ class _Optimizer:
         self._strategy = strategy
         self._greedy_cutoff = greedy_cutoff
         self._drop_cutoff = drop_cutoff
+        self._remove_shallow = remove_shallow
 
         self._next_internal_idx = 0
 
@@ -1656,6 +1665,9 @@ class _Optimizer:
                 continue
             return amp.xreplace(substs)
 
+        # Cache some properties.
+        remove_shallow = self._remove_shallow
+
         res = []
         for comput in computs:
             exts = tuple((s, self._input_ranges[r]) for s, r in comput.exts)
@@ -1674,7 +1686,11 @@ class _Optimizer:
 
             if comput.base in self._interms:
 
-                if len(terms) == 1 and len(terms[0].sums) == 0:
+                if_shallow = (
+                    remove_shallow and len(terms) == 1
+                    and len(terms[0].sums) == 0
+                )
+                if if_shallow:
                     # Remove shallow intermediates.  The saving might be too
                     # modest to justify the additional memory consumption.
                     #
