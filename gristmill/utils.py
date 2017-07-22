@@ -1,6 +1,5 @@
 """General utilities."""
 
-import collections
 import functools
 import operator
 import re
@@ -175,6 +174,15 @@ class SizedRange(Range):
     def replace_label(self, new_label):
         """Replace the label of the range."""
         return SizedRange(new_label, self._size)
+
+    @property
+    def sort_key(self):
+        """The sort key for the sized range.
+
+        This override ensures that the ranges are always sorted by increasing
+        size after the canonicalization.
+        """
+        return (self._size, self._label)
 
 
 def form_sized_range(range_: Range, substs) -> typing.Tuple[
