@@ -398,16 +398,16 @@ def _get_cost_coeffs(ranges: _Ranges) -> _CostCoeffs:
 _Saving = collections.namedtuple('_Saving', [
     # Total current saving.
     'saving',
-    # Additional saving when one more left/right factor is collected.
+    # Additional saving when one more left/right factor is added.
     'deltas'
 ])
 
 
-def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
-    """Get the saving for collection.
+def _get_constr_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
+    """Get the saving for constriction.
 
-    For the given ranges, when we make a collection of the given number of left
-    factors and the given number of right factors, we have saving,
+    For the given ranges, when we make a constriction of the given number of
+    left factors and the given number of right factors, we have saving,
 
     .. math::
 
@@ -422,7 +422,7 @@ def _get_collect_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
         (n_l n_r - 1) (C(s) e_l e_r s + e_l e_r)
         - (n_l - 1) e_l s - (n_r - 1) e_r s
 
-    When we collect terms with :math:`n_l`, it reads,
+    When we constrict terms with :math:`n_l`, it reads,
 
     .. math::
 
@@ -508,7 +508,7 @@ class _BronKerbosch:
         )
         # The set of terms currently in the biclique.
         self._terms = set()  # type: typing.Set[Symbol]
-        # The count of bases in the **uncollected** terms.
+        # The count of bases in the **unconstricted** terms.
         self._bases = collections.Counter()
         for k, v in base_infos.items():
             self._bases[k] = v.count
@@ -876,7 +876,7 @@ class _BronKerbosch:
                 continue
             saving = _Saving(saving=ns[0] * ns[1], deltas=tuple(deltas))
         else:
-            saving = _get_collect_saving(self._cost_coeffs, ns)
+            saving = _get_constr_saving(self._cost_coeffs, ns)
         return ns, saving
 
     def _form_delta(
@@ -941,19 +941,17 @@ class _BronKerbosch:
         )
 
 
-class _CollectGraph:
-    """Graph for the collectibles of a given range.
+class _ConstrGraph:
+    """Constriction graph for a given range combination.
 
-    This data structure, and the maximal biclique generation in Bron-Kerbosch
-    style, are the core of the factorization algorithm for sums.
-
-    We have separate graph for different ranges.  For each range, the graph has
-    the factors as nodes, and actual evaluations with the factors as edges.
-    Internally, the graph is stored as two sparse adjacent lists.
+    We have separate graph for different range combinations.  For each range,
+    the graph has the factors as vertices, and actual evaluations with the
+    factors as edges.  Internally, the graph is stored as two sparse adjacent
+    lists.
     """
 
     def __init__(self):
-        """Initialize the collectible table."""
+        """Initialize the constriction graph."""
         self._adjs = (
             collections.defaultdict(dict),
             collections.defaultdict(dict)
@@ -1048,7 +1046,7 @@ class _CollectGraph:
             self._opt_biclique = None
         else:
             if inaccurate:
-                saving = _get_collect_saving(_get_cost_coeffs(ranges), [
+                saving = _get_constr_saving(_get_cost_coeffs(ranges), [
                     len(i) for i in opt_biclique.nodes
                 ])
                 opt_biclique = opt_biclique._replace(saving=saving)
@@ -1132,7 +1130,7 @@ class _CollectGraph:
         return if_empty
 
 
-_Collectibles = typing.DefaultDict[_Ranges, _CollectGraph]
+_ConstrGraphs = typing.DefaultDict[_Ranges, _ConstrGraph]
 
 #
 # For product optimization.
@@ -2126,7 +2124,7 @@ class _Optimizer:
         scalars, terms, _ = self._organize_sum_terms(sum_node.sum_terms)
 
         if self._strategy & Strategy.SUM > 0:
-            new_terms, old_terms = self._factorize_sum(terms, exts)
+            new_terms, old_terms = self.constr_sum(terms, exts)
         else:
             new_terms = []
             old_terms = terms
@@ -2250,30 +2248,30 @@ class _Optimizer:
 
         return res_terms
 
-    def _factorize_sum(
+    def constr_sum(
             self, terms: typing.Sequence[Expr], exts: _SrPairs
     ):
-        """Factorize the summations greedily.
+        """Constrict the summations greedily.
         """
 
         if_keep = [True for _ in terms]
         new_terms = []
 
-        collectibles, base_infos, term_base = self._find_collectibles(
+        constr_graphs, base_infos, term_base = self._form_constr_graphs(
             terms, exts
         )
 
         while True:
 
-            ranges, biclique = self._choose_collectible(
-                collectibles, base_infos
+            ranges, biclique = self._get_opt_biclique(
+                constr_graphs, base_infos
             )
             if ranges is None:
                 break
 
-            new_terms.append(self._form_factored_term(ranges, biclique))
-            self._clean_up_collected(
-                biclique, collectibles, base_infos, term_base, if_keep
+            new_terms.append(self._form_constred_term(ranges, biclique))
+            self._cleanup_constred(
+                biclique, constr_graphs, base_infos, term_base, if_keep
             )
 
             continue
@@ -2282,13 +2280,16 @@ class _Optimizer:
         old_terms = [i for i, j in zip(terms, if_keep) if j]
         return new_terms, old_terms
 
-    def _find_collectibles(
+    def _form_constr_graphs(
             self, terms: typing.Sequence[Expr], exts: _SrPairs
-    ) -> typing.Tuple[_Collectibles, _BaseInfoDict, typing.List[Symbol]]:
-        """Find all collectibles for the given terms..
+    ) -> typing.Tuple[_ConstrGraphs, _BaseInfoDict, typing.List[Symbol]]:
+        """Form the constriction graphics for the terms.
+
+        The additional information about the bases of each of the terms are
+        also returned.
         """
 
-        coll = collections.defaultdict(_CollectGraph)  # type: _Collectibles
+        coll = collections.defaultdict(_ConstrGraph)  # type: _ConstrGraphs
         base_infos = _BaseInfoDict()
         term_base = []
 
@@ -2317,7 +2318,7 @@ class _Optimizer:
 
     def _find_collectibles_eval(
             self, term_idx: int, ref: _IntermRef, eval_idx: int, eval_: _Prod,
-            exts: _SrPairs, res: _Collectibles
+            exts: _SrPairs, res: _ConstrGraphs
     ):
         """Get the collectibles for a particular evaluations of a product.
         """
@@ -2414,10 +2415,10 @@ class _Optimizer:
 
         return
 
-    def _choose_collectible(
-            self, collectibles: _Collectibles, base_infos: _BaseInfoDict
+    def _get_opt_biclique(
+            self, constr_graphs: _ConstrGraphs, base_infos: _BaseInfoDict
     ):
-        """Choose the most profitable collectible factor.
+        """Choose the most profitable biclique.
         """
 
         rush_local = self._strategy & Strategy.RUSH_LOCAL > 0
@@ -2427,7 +2428,7 @@ class _Optimizer:
         opt_saving = None
         opt_ranges = None
         opt_biclique = None
-        for ranges, graph in collectibles.items():
+        for ranges, graph in constr_graphs.items():
 
             curr_opt_saving, curr_opt_biclique = graph.get_opt_biclique(
                 ranges, base_infos,
@@ -2449,10 +2450,10 @@ class _Optimizer:
 
         return opt_ranges, opt_biclique
 
-    def _form_factored_term(
+    def _form_constred_term(
             self, ranges: _Ranges, biclique: _Biclique
     ) -> Expr:
-        """Form the factored term for the given factorization."""
+        """Form the factored term for the given constriction."""
 
         # Form and optimize the two new summation nodes.
         factors = [biclique.leading_coeff]
@@ -2490,12 +2491,12 @@ class _Optimizer:
         return expr
 
     @staticmethod
-    def _clean_up_collected(
-            biclique: _Biclique, collectibles: _Collectibles,
+    def _cleanup_constred(
+            biclique: _Biclique, constr_graphs: _ConstrGraphs,
             base_infos: _BaseInfoDict, term_base: typing.List[Symbol],
             if_keep: typing.List[bool]
     ):
-        """Clean up the collectibles and the terms after factorization."""
+        """Clean up the terms after a constriction."""
 
         for i in biclique.terms:
             assert if_keep[i]
@@ -2505,7 +2506,7 @@ class _Optimizer:
         updated_bases = base_infos.remove_terms(biclique.terms, term_base)
 
         to_remove = []
-        for ranges, graph in collectibles.items():
+        for ranges, graph in constr_graphs.items():
             if_empty = graph.remove_terms(
                 biclique.terms, term_base, updated_bases, base_infos
             )
@@ -2513,7 +2514,7 @@ class _Optimizer:
                 to_remove.append(ranges)
             continue
         for i in to_remove:
-            del collectibles[i]
+            del constr_graphs[i]
             continue
 
     #
