@@ -410,6 +410,32 @@ class _Prod(_EvalNode):
         )
 
 
+class _Interm(typing.NamedTuple):
+    """Newly formed intermediate.
+
+    This small utility carries both a symbolic reference to an intermediate
+    and the actual node for this, which can be helpful for getting
+    information about a newly-formed intermediate.
+    """
+    ref: Expr
+    node: _EvalNode
+
+
+#
+# Internals for product optimization
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+
+
+def _get_prod_final_cost(exts_total_size, sums_total_size) -> Size:
+    """Compute the final cost for a pairwise product evaluation."""
+
+    if sums_total_size == 1:
+        return exts_total_size
+    else:
+        return 2 * exts_total_size * sums_total_size
+
+
 #
 # Internals for summation optimization
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1210,25 +1236,6 @@ class _ConstrGraphs(typing.Dict[_LastStepIdxes, _ConstrGraph]):
 
         return if_untouched
 
-#
-# Internals for product optimization
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#
-
-_Part = collections.namedtuple('_Part', [
-    'ref',
-    'node'
-])
-
-
-def _get_prod_final_cost(exts_total_size, sums_total_size) -> Size:
-    """Compute the final cost for a pairwise product evaluation."""
-
-    if sums_total_size == 1:
-        return exts_total_size
-    else:
-        return 2 * exts_total_size * sums_total_size
-
 
 #
 # Core optimizer class
@@ -2007,9 +2014,7 @@ class _Optimizer:
         else:
             assert False
 
-    def _form_prod_interm(
-            self, exts, sums, factors
-    ) -> typing.Tuple[Expr, _EvalNode]:
+    def _form_prod_interm(self, exts, sums, factors) -> _Interm:
         """Form a product intermediate.
 
         The factors are assumed to be all non-trivial factors needing
@@ -2046,13 +2051,14 @@ class _Optimizer:
             )
             self._interms[base] = interm
 
-        return coeff * _index(
-            base, canon_exts, strip=True
-        ), self._interms[base]
+        return _Interm(
+            ref=coeff * _index(base, canon_exts, strip=True),
+            node=self._interms[base]
+        )
 
     def _form_sum_interm(
             self, exts: _SrPairs, terms: typing.Sequence[Term]
-    ) -> typing.Tuple[Expr, _EvalNode]:
+    ) -> _Interm:
         """Form a sum intermediate.
         """
 
@@ -2085,9 +2091,10 @@ class _Optimizer:
             self._interms[base] = node
             self._optimize(node)
 
-        return coeff * _index(
-            base, canon_exts, strip=True
-        ), self._interms[base]
+        return _Interm(
+            ref=coeff * _index(base, canon_exts, strip=True),
+            node=self._interms[base]
+        )
 
     def _form_sum_from_terms(
             self, base: Symbol, exts: _SrPairs, terms: typing.Iterable[Term]
@@ -2681,7 +2688,7 @@ class _Optimizer:
 
             continue
 
-        # Loop over bipartitions of the indivisble chunks.
+        # Loop over bipartitions of the indivisible chunks.
 
         n_chunks = index
         for p1 in range(1, 2 ** n_chunks - 1, 2):
@@ -2739,11 +2746,11 @@ class _Optimizer:
                 sums_list.append(v)
             continue
 
-        ref, node = self._form_prod_interm(exts_list, sums_list, factors_list)
-        return _Part(ref=ref, node=node)
+        return self._form_prod_interm(exts_list, sums_list, factors_list)
 
     def _form_prod_eval(
-            self, prod_node: _Prod, broken_sums, parts: typing.Tuple[_Part, ...]
+            self, prod_node: _Prod, broken_sums,
+            parts: typing.Tuple[_Interm, ...]
     ):
         """Form an evaluation for a product node."""
 
