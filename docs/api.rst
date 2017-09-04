@@ -20,7 +20,7 @@ Evaluation Optimization
 
 .. autofunction:: optimize
 
-.. autoclass:: Strategy
+.. autoclass:: ContrStrat
     :members:
 
 .. autofunction:: verify_eval_seq
