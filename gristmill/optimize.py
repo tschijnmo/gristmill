@@ -213,6 +213,89 @@ class _IntermRef(typing.NamedTuple):
 
 
 #
+# Core evaluation DAG nodes
+# ~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+
+
+class _EvalNode:
+    """A node in the evaluation graph.
+    """
+
+    def __init__(self, base: Symbol, exts: _SrPairs):
+        """Initialize the evaluation node.
+        """
+
+        self.base = base
+        self.exts = exts
+
+        # For optimization.
+        self.evals = []  # type: typing.List[_EvalNode]
+        self.total_cost = None
+
+        # For result finalization.
+        self.n_refs = 0
+        self.generated = False
+
+    def get_substs(self, indices):
+        """Get substitutions and symbols requiring exclusion before indexing.
+
+        First resetting dummies excluding the returned symbols and then making
+        the returned substitution on each term could achieve indexing.  Since
+        the real free symbols are already gather from all inputs, the free
+        symbols are not considered here.  But they should be added for the
+        resetting.
+        """
+
+        substs = {}
+        excl = set()
+
+        assert len(indices) == len(self.exts)
+        for i, j in zip(indices, self.exts):
+            dumm = j[0]
+            substs[dumm] = i
+            excl.add(dumm)
+            excl |= i.atoms(Symbol)
+            continue
+
+        return substs, excl
+
+
+class _Sum(_EvalNode):
+    """Sum nodes in the evaluation graph."""
+
+    def __init__(self, base, exts, sum_terms):
+        """Initialize the node."""
+        super().__init__(base, exts)
+        self.sum_terms = sum_terms
+
+    def __repr__(self):
+        """Form a representation string for the node."""
+        return '_Sum(base={}, exts={}, sum_terms={})'.format(
+            repr(self.base), repr(self.exts), repr(self.sum_terms)
+        )
+
+
+class _Prod(_EvalNode):
+    """Product nodes in the evaluation graph.
+    """
+
+    def __init__(self, base, exts, sums, coeff, factors):
+        """Initialize the node."""
+        super().__init__(base, exts)
+        self.sums = sums
+        self.coeff = coeff
+        self.factors = factors
+
+    def __repr__(self):
+        """Form a representation string for the node."""
+        return '_Prod(base={}, exts={}, sums={}, coeff={}, factors={})'.format(
+            repr(self.base), repr(self.exts), repr(self.sums),
+            repr(self.coeff), repr(self.factors)
+        )
+
+
+#
 # Internals for summation optimization
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #
@@ -262,7 +345,7 @@ class _LastStepIdxes(typing.NamedTuple):
 class _EdgeInfo(typing.NamedTuple):
     """Information about an edge on a constriction graph."""
     term: int
-    eval_: '_Prod'
+    eval_: _Prod
     coeff: Expr
     exc_cost: Size
 
@@ -280,7 +363,7 @@ class _BaseInfo:
         'node'
     ]
 
-    def __init__(self, base: _Base, node: '_Prod'):
+    def __init__(self, base: _Base, node: _Prod):
         """Initialize the information.
 
         The count is initialized to **zero**.
@@ -810,7 +893,7 @@ class _ConstrGraph:
 
     def add_edge(
             self, node_infos: typing.Tuple[_VertInfo, _VertInfo],
-            coeff: Expr, term: int, eval_: '_Prod'
+            coeff: Expr, term: int, eval_: _Prod
     ):
         """Add a new edge to the graph."""
 
@@ -1030,89 +1113,6 @@ def _get_prod_final_cost(exts_total_size, sums_total_size) -> Size:
         return exts_total_size
     else:
         return 2 * exts_total_size * sums_total_size
-
-
-#
-# Core evaluation DAG nodes
-# ~~~~~~~~~~~~~~~~~~~~~~~~~
-#
-
-
-class _EvalNode:
-    """A node in the evaluation graph.
-    """
-
-    def __init__(self, base: Symbol, exts: _SrPairs):
-        """Initialize the evaluation node.
-        """
-
-        self.base = base
-        self.exts = exts
-
-        # For optimization.
-        self.evals = []  # type: typing.List[_EvalNode]
-        self.total_cost = None
-
-        # For result finalization.
-        self.n_refs = 0
-        self.generated = False
-
-    def get_substs(self, indices):
-        """Get substitutions and symbols requiring exclusion before indexing.
-
-        First resetting dummies excluding the returned symbols and then making
-        the returned substitution on each term could achieve indexing.  Since
-        the real free symbols are already gather from all inputs, the free
-        symbols are not considered here.  But they should be added for the
-        resetting.
-        """
-
-        substs = {}
-        excl = set()
-
-        assert len(indices) == len(self.exts)
-        for i, j in zip(indices, self.exts):
-            dumm = j[0]
-            substs[dumm] = i
-            excl.add(dumm)
-            excl |= i.atoms(Symbol)
-            continue
-
-        return substs, excl
-
-
-class _Sum(_EvalNode):
-    """Sum nodes in the evaluation graph."""
-
-    def __init__(self, base, exts, sum_terms):
-        """Initialize the node."""
-        super().__init__(base, exts)
-        self.sum_terms = sum_terms
-
-    def __repr__(self):
-        """Form a representation string for the node."""
-        return '_Sum(base={}, exts={}, sum_terms={})'.format(
-            repr(self.base), repr(self.exts), repr(self.sum_terms)
-        )
-
-
-class _Prod(_EvalNode):
-    """Product nodes in the evaluation graph.
-    """
-
-    def __init__(self, base, exts, sums, coeff, factors):
-        """Initialize the node."""
-        super().__init__(base, exts)
-        self.sums = sums
-        self.coeff = coeff
-        self.factors = factors
-
-    def __repr__(self):
-        """Form a representation string for the node."""
-        return '_Prod(base={}, exts={}, sums={}, coeff={}, factors={})'.format(
-            repr(self.base), repr(self.exts), repr(self.sums),
-            repr(self.coeff), repr(self.factors)
-        )
 
 
 #
