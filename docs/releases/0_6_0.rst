@@ -1,11 +1,20 @@
-0.5.0
+0.6.0
 ~~~~~
 
-The primarily focus of this release is the optimization for problems with terms
-composed of a large number of factors.  The contraction optimization algorithm
-has been upgraded with bits replacing hash tables for storing and manipulating
-factor/summation sets.  Significant improvements in performance can be seen in
-problems with say 20 factors.
+This release is another release of gristmill with significant update.  First,
+the user interface for optimization has been updated for cleanness.  The complex
+optimization strategy has been replaced with separate options for the function
+call.
+
+Also internally, the code has been significantly cleaned up and improved. The
+primary driving force for the revisions are the lessons learned when writing the
+manuscripts for the optimization methodologies.  Now the code has been made
+completely in sync with the description in the manuscripts.  This also brings
+significant performance boost.  For instance, for the optimization for problems
+with terms composed of a large number of factors, the contraction optimization
+algorithm has been upgraded with bits replacing hash tables for storing and
+manipulating factor/summation sets. Significant improvements in performance can
+be seen in problems with say 20 factors.
 
 A minor new feature is the addition of an option to disable the inlining of
 shallow intermediates in the optimizer.  This can be used in cases where the
