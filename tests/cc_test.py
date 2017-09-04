@@ -4,7 +4,7 @@ import pytest
 from drudge import PartHoleDrudge
 from sympy import IndexedBase, Symbol, Rational
 
-from gristmill import optimize, verify_eval_seq, Strategy, get_flop_cost
+from gristmill import optimize, verify_eval_seq, ContrStrat, get_flop_cost
 
 
 @pytest.fixture(scope='module')
@@ -100,21 +100,20 @@ def test_ccsd_energy(parthole_drudge):
     )
     targets = [energy]
 
-    searched_eval_seq = optimize(targets, substs={p.nv: p.no * 10})
+    trav_eval_seq = optimize(targets, substs={p.nv: p.no * 10})
 
-    assert verify_eval_seq(searched_eval_seq, targets)
-    assert len(searched_eval_seq) == 2
-    searched_cost = get_flop_cost(searched_eval_seq)
+    assert verify_eval_seq(trav_eval_seq, targets)
+    assert len(trav_eval_seq) == 2
+    trav_cost = get_flop_cost(trav_eval_seq)
 
-    best_eval_seq = optimize(
-        targets, substs={p.nv: p.no * 10},
-        strategy=Strategy.BEST | Strategy.SUM | Strategy.COMMON
+    opt_eval_seq = optimize(
+        targets, substs={p.nv: p.no * 10}, contr_strat=ContrStrat.OPT
     )
-    assert verify_eval_seq(best_eval_seq, targets)
-    assert len(best_eval_seq) == 2
-    best_cost = get_flop_cost(best_eval_seq)
+    assert verify_eval_seq(opt_eval_seq, targets)
+    assert len(opt_eval_seq) == 2
+    opt_cost = get_flop_cost(opt_eval_seq)
 
-    assert (best_cost - searched_cost).xreplace({p.no: 1, p.nv: 10}) > 0
+    assert (opt_cost - trav_cost).xreplace({p.no: 1, p.nv: 10}) > 0
 
 
 def test_ccsd_doubles(parthole_drudge):
@@ -141,24 +140,20 @@ def test_ccsd_doubles(parthole_drudge):
     )
     targets = [tensor]
 
-    all_eval_seq = optimize(
-        targets, substs={p.nv: p.no * 10},
-        strategy=Strategy.ALL | Strategy.SUM | Strategy.COMMON
+    exhaust_eval_seq = optimize(
+        targets, substs={p.nv: p.no * 10}, contr_strat=ContrStrat.EXHAUST
     )
 
-    assert verify_eval_seq(all_eval_seq, targets)
-    assert len(all_eval_seq) == 2
-    all_cost = get_flop_cost(all_eval_seq)
+    assert verify_eval_seq(exhaust_eval_seq, targets)
+    assert len(exhaust_eval_seq) == 2
+    exhaust_cost = get_flop_cost(exhaust_eval_seq)
 
-    best_eval_seq = optimize(
-        targets, substs={p.nv: p.no * 10},
-        strategy=Strategy.BEST | Strategy.SUM | Strategy.COMMON
-    )
-    assert verify_eval_seq(best_eval_seq, targets)
-    assert len(best_eval_seq) == 2
-    best_cost = get_flop_cost(best_eval_seq)
+    opt_eval_seq = optimize(targets, substs={p.nv: p.no * 10})
+    assert verify_eval_seq(opt_eval_seq, targets)
+    assert len(opt_eval_seq) == 2
+    opt_cost = get_flop_cost(opt_eval_seq)
 
-    assert (best_cost - all_cost).xreplace({p.no: 1, p.nv: 10}) > 0
+    assert (opt_cost - exhaust_cost).xreplace({p.no: 1, p.nv: 10}) > 0
 
 
 def test_ccsd_doubles_complex_terms(parthole_drudge):
@@ -225,8 +220,7 @@ def test_ccsd_doubles_complex_terms(parthole_drudge):
         for drop_cutoff in [-1, 2]:
             eval_seq = optimize(
                 targets, substs=substs,
-                strategy=Strategy.ALL | Strategy.SUM | Strategy.COMMON,
-                drop_cutoff=drop_cutoff
+                contr_strat=ContrStrat.EXHAUST, drop_cutoff=drop_cutoff
             )
             assert verify_eval_seq(eval_seq, targets)
             # Here we just assert that the final step is a simple product.
@@ -237,8 +231,7 @@ def test_ccsd_doubles_complex_terms(parthole_drudge):
         targets = [tensor]
         eval_seq = optimize(
             targets, substs={p.nv: p.no * 1.1},
-            strategy=Strategy.ALL | Strategy.SUM | Strategy.COMMON,
-            drop_cutoff=drop_cutoff
+            contr_strat=ContrStrat.EXHAUST, drop_cutoff=drop_cutoff
         )
         assert verify_eval_seq(eval_seq, targets)
         # Here we assert that the two products are separately factored.
@@ -276,7 +269,6 @@ def test_ccsd_pij_term(parthole_drudge):
     drop_cutoff = -1
     eval_seq = optimize(
         targets, substs={p.nv: p.no * 1.1},
-        strategy=Strategy.ALL | Strategy.SUM | Strategy.COMMON,
-        drop_cutoff=drop_cutoff
+        contr_strat=ContrStrat.EXHAUST, drop_cutoff=drop_cutoff
     )
     verify_eval_seq(eval_seq, targets)

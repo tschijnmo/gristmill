@@ -1,17 +1,12 @@
 """Test of matrix factorization."""
 
-import pytest
-
 from drudge import Range, Drudge
 from sympy import symbols, IndexedBase, Symbol
 
-from gristmill import optimize, verify_eval_seq, get_flop_cost, Strategy
+from gristmill import optimize, verify_eval_seq, get_flop_cost
 
 
-@pytest.mark.parametrize('strategy', [
-    Strategy.DEFAULT, Strategy.DEFAULT | Strategy.INACCURATE
-])
-def test_matrix_factorization(spark_ctx, strategy):
+def test_matrix_factorization(spark_ctx):
     """Test a basic matrix multiplication factorization problem.
 
     In this test, there are four matrices involved, X, Y, U, and V.  And they
@@ -65,7 +60,7 @@ def test_matrix_factorization(spark_ctx, strategy):
     targets = [target]
 
     # The actual optimization.
-    res = optimize(targets, strategy=strategy)
+    res = optimize(targets)
     assert len(res) == 3
 
     # Test the correctness.
@@ -100,7 +95,7 @@ def test_matrix_factorization(spark_ctx, strategy):
     targets = [target]
 
     # The actual optimization.
-    res = optimize(targets, strategy=strategy)
+    res = optimize(targets)
     assert len(res) == 3
 
     # Test the correctness.
@@ -115,7 +110,7 @@ def test_matrix_factorization(spark_ctx, strategy):
     assert cost == 4 * n ** 3 + 2 * n ** 2
 
     # Test disabling summation optimization.
-    res = optimize(targets, strategy=Strategy.BEST)
+    res = optimize(targets, opt_sum=False)
     assert verify_eval_seq(res, targets, simplify=True)
     new_cost = get_flop_cost(res, ignore_consts=False)
     assert new_cost - cost != 0
