@@ -46,6 +46,10 @@ class SVPoly(Polynomial):
         """Make an equality comparison."""
         return self._comp(other) == 0
 
+    def __ge__(self, other):
+        """Make a greater than or equal to comparison."""
+        return self > other or self == other
+
     def _comp(self, other):
         """Make a comparison with another size quantity."""
 
@@ -128,7 +132,7 @@ def mul_sizes(sizes):
     return functools.reduce(operator.mul, sizes, 1)
 
 
-def get_total_size(sums):
+def get_total_size(sums) -> Size:
     """Get the total size of a summation list.
 
     Here an integral unity will be returned when we have an empty summation

@@ -1,20 +1,23 @@
 """Optimizer for the contraction computations."""
 
 import collections
+import enum
+import functools
 import heapq
 import itertools
-import types
+import operator
 import typing
 import warnings
 
 from drudge import TensorDef, prod_, Term, Range, sum_
+from networkx import Graph
 from sympy import (
     Integer, Symbol, Expr, IndexedBase, Mul, Indexed, primitive, Wild,
     default_sort_key, Pow
 )
 
 from .utils import (
-    Size, get_total_size, mul_sizes, DSF, Tuple4Cmp, form_sized_range
+    Size, get_total_size, DSF, Tuple4Cmp, form_sized_range
 )
 
 
@@ -24,90 +27,53 @@ from .utils import (
 #
 
 
-class Strategy:
-    """The optimization strategy for tensor contractions.
+class ContrStrat(enum.Enum):
+    """The strategies for handling tensor contractions.
 
-    This class holds possible options for different aspects of the optimization
-    strategy for tensor contractions.  Options for different aspects of the
-    problem should be combined by using the bitwise-or ``|`` operator.
-
-    For the optimization of the single-term contractions, we have
+    This class holds possible options for different ways of handling
+    contractions in the optimization, for both the termination of the main
+    loop and the retention of parenthesizations for sum optimization.
+    Specifically, we have options
 
     ``GREEDY``
         The contraction within each term will be optimized greedily.  This
-        should only be used for inputs having terms containing many factors by a
-        very dense pattern.
+        accelerates the optimization with big sacrifice of the result
+        quality.  So it should only be used for inputs having terms
+        containing many factors by a very dense pattern.
 
-    ``BEST``
+    ``OPT``
         The global minimum of each tensor contraction will be found by the
         advanced algorithm in gristmill.  And only the optimal contraction(s)
-        will be kept for the summation optimization.
+        will be kept for the sum optimization.
 
-    ``SEARCHED``
-        The same strategy as ``BEST`` will be attempted for the optimization of
-        contractions.  But all evaluations searched in the optimization process
-        will be kept and considered in subsequent summation optimizations.
+    ``TRAV``
+        The same strategy as ``OPT`` will be attempted for the optimization
+        of contractions.  But all evaluations traversed in the optimization
+        process will be kept and considered in subsequent summation
+        optimizations.
 
-    ``ALL``
-        All possible contraction sequences will be considered for all terms.
-        This can be extremely slow.  But it might be helpful for problems having
+    ``EXHAUST``
+        All possible parenthesizations will be considered for all terms. This
+        can be extremely slow.  But it might be helpful for problems having
         terms all with manageable number of factors.
-
-    For the summation factorization, we have
-
-    ``SUM``
-        Factorize the summations in the result.
-
-    ``INACCURATE``
-        Do not accurately calculate the saving in summation optimization.  This
-        will skip the exact arithmetic for the costs and use a special heuristic
-        the estimate the actual saving.
-
-    For the common factor optimization, we have
-
-    ``COMMON``
-        Skip computation of the same factor up to permutation of indices in
-        summations.
-
-    We also have the default optimization strategy as ``DEFAULT``, which will be
-    ``SEARCHED | SUM | COMMON``.
 
     """
 
     GREEDY = 0
-    BEST = 1
-    SEARCHED = 2
-    ALL = 3
-    PROD_MASK = 0b11
-
-    SUM = 1 << 2
-    INACCURATE = 1 << 3
-
-    COMMON = 1 << 4
-
-    # Internal options, not useful for users.  If evaluations with negative
-    # local/global saving will be considered.  They turn out to be not quite
-    # useful and is pending removal.
-
-    RUSH_LOCAL = 1 << 5
-    RUSH_GLOBAL = 1 << 6
-
-    DEFAULT = SEARCHED | SUM | COMMON
-
-    MAX = 1 << 7
+    OPT = 1
+    TRAV = 2
+    EXHAUST = 3
 
 
-def optimize(
-        computs: typing.Iterable[TensorDef], substs=None, interm_fmt='tau^{}',
-        simplify=True, strategy=Strategy.DEFAULT, greedy_cutoff=-1,
-        drop_cutoff=-1, remove_shallow=True
-) -> typing.List[TensorDef]:
-    """Optimize the valuation of the given tensor contractions.
+def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
+             interm_fmt='tau^{}', contr_strat=ContrStrat.TRAV, opt_sum=True,
+             opt_symm=True, greedy_cutoff=-1, drop_cutoff=-1,
+             remove_shallow=True) -> typing.List[TensorDef]:
+    """Optimize the evaluation of the given tensor computations.
 
     This function will transform the given computations, given as tensor
-    definitions, into another list of computations mathematically equivalent to
-    the given computation while requiring less floating-point operations
-    (FLOPs).
+    definitions, into another list of computations mathematically equivalent
+    to the given computations, while requiring less arithmetic operations.
 
     Parameters
     ----------
@@ -126,20 +92,32 @@ def optimize(
         integer or floating point arithmetic in lieu of the more complex
         polynomial arithmetic.
 
-    interm_fmt
-        The format for the names of the intermediates.
-
     simplify
         If the input is going to be simplified before processing.  It can be
         disabled when the input is already simplified.
 
-    strategy
-        The optimization strategy, as explained in :py:class:`Strategy`.
+    interm_fmt
+        The format for the names of the intermediates.
+
+    contr_strat
+        The strategy for handling contractions, as explained in
+        :py:class:`ContrStrat`.
+
+    opt_sum
+        If sums of multiple terms will be attempted to be optimized by using
+        constriction (factorization).
+
+    opt_symm
+        If common symmetrization of multiple tensors, input or intermediate,
+        is going to be optimized.  For instance, with it, :math:`x_{a,
+        b} + y_{a, b} - 2 x_{b, a} - 2 y_{b, a}` can be optimized into first
+        computing :math:`p_{a, b} = x_{a, b} + y_{a, b}` followed by
+        :math:`p_{a, b} - 2 p_{b, a}`.
 
     greedy_cutoff
-        The depth cutoff for making greedy selection in summation optimization.
-        Beyond this depth in the recursion tree (inclusive), only the choices
-        making locally best saving will be considered.  With negative values,
+        The depth cutoff for making greedy selection in constriction. Beyond
+        this depth in the recursion tree (inclusive), only the choices making
+        locally best saving will be considered.  With negative values,
         full Bron-Kerbosch backtracking is performed.
 
     drop_cutoff
@@ -152,13 +130,15 @@ def optimize(
         value of ``2`` is advised.
 
     remove_shallow
-
         Shallow intermediates are outer-product intermediates that come with no
         summations.  Normally these intermediates cannot give saving big enough
         to justify their memory usage.  So by default, they just dropped, with
         their content inlined into places where they are referenced.
 
     """
+
+    # This interface function is primarily just for sanity checking and
+    # normalization of the input.
 
     substs = {} if substs is None else substs
 
@@ -169,11 +149,12 @@ def optimize(
     if len(computs) == 0:
         raise ValueError('No computation is given!')
 
-    if not isinstance(strategy, int) or strategy >= Strategy.MAX:
-        raise TypeError('Invalid optimization strategy', strategy)
+    if not isinstance(contr_strat, ContrStrat):
+        raise TypeError('Invalid contraction strategy', contr_strat)
 
     opt = _Optimizer(
-        computs, substs=substs, interm_fmt=interm_fmt, strategy=strategy,
+        computs, substs=substs, interm_fmt=interm_fmt,
+        contr_strat=contr_strat, opt_sum=opt_sum, opt_symm=opt_symm,
         greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff,
         remove_shallow=remove_shallow
     )
@@ -188,47 +169,56 @@ def optimize(
 # General small type definitions and functions
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #
-# These named tuples should be upgraded when PySpark has support for Python 3.6
-# in their stable version.
+
+# Base for tensor definitions.
 #
-# For general optimization.
-#
+# Symbol for 0-order tensors, IndexedBase for other cases.
 
-
-_Grain = collections.namedtuple('_Grain', [
-    'base',
-    'exts',
-    'terms'
-])
-
-_IntermRef = collections.namedtuple('_IntermRef', [
-    'coeff',
-    'base',
-    'indices',
-    'power'
-])
-
-
-def _get_ref_from_interm_ref(self: _IntermRef):
-    """Get the reference to intermediate without coefficient."""
-    return _index(self.base, self.indices) ** self.power
-
-
-_IntermRef.ref = property(_get_ref_from_interm_ref)
+_Base = typing.Union[Symbol, IndexedBase]
 
 # Symbol/range pairs.
-#
-# This type is mostly for the convenience of annotation.
 
 _SrPairs = typing.Sequence[typing.Tuple[Symbol, Range]]
 
-#
-# Internals for summation and product optimization
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#
-# Summation optimization.
-#
+# Sequences of terms.
 
+_Terms = typing.Sequence[Term]
+
+# Indices to tensor bases.
+
+_Indices = typing.Tuple[Expr]
+
+
+class _Grain(typing.NamedTuple):
+    """A piece of grain ready for optimization.
+
+    Basically it is a tensor definition with localized terms.
+    """
+    base: _Base
+    exts: _SrPairs
+    terms: _Terms
+
+
+class _IntermRef(typing.NamedTuple):
+    """A reference to an intermediate."""
+    coeff: Expr
+    base: _Base
+    indices: _Indices
+    power: int
+
+    @property
+    def ref(self):
+        """The reference to intermediate without coefficient."""
+        return _index(self.base, self.indices) ** self.power
+
+
+#
+# Internals for summation optimization
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+# Convention: nodes always refer to nodes in the DAG for tensor computations,
+# while vertices are used for vertices in the constriction graph.
+#
 
 # Organized references to products in a summation.
 #
@@ -239,7 +229,7 @@ _OrgTerms = typing.DefaultDict[
 ]
 
 #
-# Static description of the collection graph.
+# Symbolic names for the parts of the bicliques.
 #
 
 _LEFT = 0
@@ -252,25 +242,29 @@ _OPPOS = {
 # For type annotation, actually is should be ``_LEFT | _RIGHT`` in Haskell
 # algebraic data type notation.
 
-_LR = int
+_LR = typing.NewType('_LR', int)
 
-_Ranges = collections.namedtuple('_Ranges', [
-    'exts',
-    'sums'
-])
+_LRS = (_LEFT, _RIGHT)
 
-_Edge = collections.namedtuple('_Edge', [
-    'term',
-    'eval_',
-    'base',
-    'coeff',
-    'exc_cost',
-])
 
-_Adjs = typing.Tuple[
-    typing.Dict[Term, typing.Dict[Term, _Edge]],
-    typing.Dict[Term, typing.Dict[Term, _Edge]]
-]
+class _LastStepIdxes(typing.NamedTuple):
+    """The involved indices of the last step of a constriction.
+
+    The external and summation indices involved by the left/right factor in
+    the last step of a contraction.  This is going to be used as the key for
+    accessing the actual graph.
+
+    """
+    exts: typing.Tuple[_SrPairs, _SrPairs]
+    sums: _SrPairs
+
+
+class _EdgeInfo(typing.NamedTuple):
+    """Information about an edge on a constriction graph."""
+    term: int
+    eval_: '_Prod'
+    coeff: Expr
+    exc_cost: Size
 
 
 class _BaseInfo:
@@ -282,53 +276,19 @@ class _BaseInfo:
 
     __slots__ = [
         'count',
-        'cost'
+        'base',
+        'node'
     ]
 
-    def __init__(self, cost):
+    def __init__(self, base: _Base, node: '_Prod'):
         """Initialize the information.
 
-        The count will be initialized to one.
+        The count is initialized to **zero**.
         """
 
-        self.count = 1
-        self.cost = cost
-
-
-class _BaseInfoDict(dict):
-    """Mapping from symbol of bases to its information.
-
-    Symbol -> _BaseInfo.
-    """
-
-    def add_base(self, base, cost):
-        """Add the given base."""
-        if base in self:
-            self[base].count += 1
-        else:
-            self[base] = _BaseInfo(cost)
-        return
-
-    def remove_terms(self, terms, term_base):
-        """Remove the terms from base information dictionary.
-
-        The bases that have been updated by this will be returned in a
-        set.
-        """
-
-        updated = set()
-
-        for i in terms:
-            base = term_base[i]
-
-            updated.add(base)
-
-            if self[base].count > 1:
-                self[base].count -= 1
-            else:
-                del self[base]
-
-        return updated
+        self.base = base
+        self.node = node
+        self.count: int = 0
 
 
 #
@@ -336,141 +296,155 @@ class _BaseInfoDict(dict):
 #
 
 
-# Additional information about a node when it is used to augment the current
-# biclique.
-_Delta = collections.namedtuple('_Delta', [
-    'coeff',
-    'terms',
-    'bases',
-    'exc_cost',
-    'saving'
-])
+class _VertInfo(typing.NamedTuple):
+    """Information about a vertex in a constriction graph.
 
-# Dictionary of the nodes that can possibly to used to augment the current
-# biclique.  To be used for variables like ``subg`` and ``cand`` in the
-# Bron-Kerbosch algorithm.
-_Nodes = typing.Dict[
-    typing.Tuple[int, Term], typing.Optional[_Delta]
-]
+    expr
+        The original expression for the factor.
 
-_Biclique = collections.namedtuple('_Biclique', [
-    'nodes',  # Left and right, nodes and coefficients.
-    'leading_coeff',
-    'terms',
-    'saving'
-])
+    exts
+        The involved external indices.
+
+    canon
+        The canonicalized content for the factor.
+
+    """
+
+    exts: int
+    expr: Expr
+    canon: _Terms
+
+
+class _Delta(object):
+    """Additional information about augmentation by a designated vertex.
+    """
+
+    __slots__ = [
+        'coeff',
+        'leading_coeff',
+        'terms',
+        'exc_cost',
+        'saving'
+    ]
+
+    def __init__(
+            self, coeff: Expr, leading_coeff: typing.Optional[Expr],
+            terms: int, exc_cost: Size
+    ):
+        """Initialize the delta."""
+        self.coeff = coeff
+        self.leading_coeff = leading_coeff
+        self.terms = terms
+        self.exc_cost = exc_cost
+        self.saving: Size = 0
+
+
+class _DesVert(typing.NamedTuple):
+    """Vertices designated for a specific part."""
+    part: int
+    vert: int
+
+
+# Sets of designated vertices.
+
+_DesVerts = typing.Set[_DesVert]
+
+# Dictionary of the designated vertices augmenting the current biclique along
+# with their delta.
+
+_DesVertsWDelta = typing.Mapping[_DesVert, _Delta]
+
+# Zipped vertices and coefficients.
+
+_VertsWCoeff = typing.List[typing.Tuple[int, Expr]]
+
+# Parts for a constriction, left and right.
+
+_ConstrParts = typing.Tuple[_VertsWCoeff, _VertsWCoeff]
+
+
+class _Biclique(typing.NamedTuple):
+    """A biclique to be yielded."""
+    parts: _ConstrParts
+    leading_coeff: Expr
+    terms: int
+    saving: Size
+    constr_graph: '_ConstrGraph'
+
 
 #
 # Cost-related utilities for the Kron-Kerbosch process.
 #
 
 
-# These coefficients cached here can make the computation of the saving of a
-# biclique easy and fast.
+class _CostCoeffs(typing.NamedTuple):
+    """Cached quantities for getting gross saving of bicliques.
 
-_CostCoeffs = collections.namedtuple('_CostCoeffs', [
-    # The final cost for contraction and make an addition of the results.
-    'final',
-    # The cost of making an addition for left and right factors.
-    'preps'
-])
+    final
+        The final cost for contraction and make an addition of the results.
+
+    preps
+        The cost of making an addition for left and right factors.
+
+    """
+
+    final: Size
+    preps: typing.Tuple[Size, Size]
 
 
-def _get_cost_coeffs(ranges: _Ranges) -> _CostCoeffs:
-    """Get the cost coefficients for the given ranges."""
+def _get_cost_coeffs(last_step_idxes: _LastStepIdxes) -> _CostCoeffs:
+    """Get the cost coefficients for the given last step indices."""
 
-    ext_size = get_total_size(itertools.chain.from_iterable(
-        ranges.exts
-    ))
+    sums = last_step_idxes.sums
+    exts = last_step_idxes.exts
+
+    ext_size = get_total_size(itertools.chain.from_iterable(exts))
 
     final = _get_prod_final_cost(
-        ext_size, get_total_size(ranges.sums)
+        ext_size, get_total_size(sums)
     ) + ext_size
 
-    preps = tuple(
-        get_total_size(itertools.chain(i, ranges.sums))
-        for i in ranges.exts
-    )
+    preps = (
+        get_total_size(itertools.chain(exts[0], sums)),
+        get_total_size(itertools.chain(exts[1], sums))
+    )  # Explicitly repeated for linter.
 
     return _CostCoeffs(final=final, preps=preps)
 
 
-_Saving = collections.namedtuple('_Saving', [
-    # Total current saving.
-    'saving',
-    # Additional saving when one more left/right factor is added.
-    'deltas'
-])
+class _VertGross(typing.Dict[typing.Tuple[int, int], typing.Tuple[Size, Size]]):
+    """Gross saving of vertices.
 
-
-def _get_constr_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
-    """Get the saving for constriction.
-
-    For the given ranges, when we make a constriction of the given number of
-    left factors and the given number of right factors, we have saving,
-
-    .. math::
-
-        n_l n_r C(s) e_l e_r s + (n_l n_r - 1) e_l e_r
-        - (n_l - 1) e_l s - (n_r - 1) e_r s - C(s) e_l e_r s
-
-    where :math:`C(s)` equals one for no summation and two for the presence of
-    summations.  It also equals
-
-    .. math::
-
-        (n_l n_r - 1) (C(s) e_l e_r s + e_l e_r)
-        - (n_l - 1) e_l s - (n_r - 1) e_r s
-
-    When we constrict terms with :math:`n_l`, it reads,
-
-    .. math::
-
-        n_l (
-            n_r C(s) e_l e_r s + n_r e_l e_r - e_l s
-        )
-        - n_r e_r s
-        + e_l s + e_r s - e_l e_r - C(s) e_l e_r s
-
-    or symmetrically
-
-    .. math::
-
-        n_r (
-            n_l C(s) e_l e_r s + n_l e_l e_r - e_r s
-        )
-        - n_l e_l s
-        + e_l s + e_r s - e_l e_r - C(s) e_l e_r s
+    Given any numbers of vertices in the two parts, the gross saving of an
+    additional vertex in the two parts can be queried.  The result are
+    memorized for performance.
 
     """
 
-    assert len(n_s) == 2
-    assert len(coeffs.preps) == 2
+    __slots__ = [
+        '_cost_coeffs'
+    ]
 
-    n_terms = mul_sizes(n_s)
+    def __init__(self, last_step_idxes: _LastStepIdxes):
+        """Initialize the dictionary."""
+        self._cost_coeffs = _get_cost_coeffs(last_step_idxes)
 
-    saving = (n_terms - 1) * coeffs.final - sum(
-        (i - 1) * j
-        for i, j in zip(n_s, coeffs.preps)
-    )
+    def __missing__(self, key):
+        """Compute the gross savings for new keys."""
+        assert len(key) == 2
+        assert all(i >= 0 for i in key)
 
-    deltas = []
-    # for i, j in zip(reversed(n_s), coeffs.preps):
-    for i, v in enumerate(coeffs.preps):
-        o = 1 if i == 0 else 0
-        if n_s[i] == 0:
-            # This could allow bicliques empty in a direction to be augmented by
-            # any left or right term.  A value of infinity has to be used to
-            # mask the possible non-zero excess costs.
-            deltas.append(float('inf'))
-        elif n_s[o] == 0:
-            # This prevents a dimension get expanded without anything.
-            deltas.append(-float('inf'))
+        if any(i == 0 for i in key):
+            res = (0, 0)
         else:
-            deltas.append(n_s[o] * coeffs.final - v)
-        continue
+            cost_coeffs = self._cost_coeffs
+            res = tuple(
+                key[_OPPOS[i]] * cost_coeffs.final - cost_coeffs.preps[i]
+                for i in _LRS
+            )
 
-    return _Saving(saving=saving, deltas=tuple(deltas))
+        self[key] = res
+        return res
 
 
 #
@@ -479,93 +453,89 @@ def _get_constr_saving(coeffs: _CostCoeffs, n_s: typing.Sequence[int]):
 
 
 class _BronKerbosch:
-    """Iterable for the maximal bicliques."""
+    """Iterable for the maximal bicliques.
+
+    For performance reasons, the bicliques generated will contain references
+    to internal mutable data.  It is the **responsibility of the caller** to
+    make proper copy when it is necessary.
+
+    """
 
     def __init__(
-            self, adjs: _Adjs, base_infos: _BaseInfoDict,
-            ranges: _Ranges, greedy_cutoff=-1, drop_cutoff=-1,
-            rush_local=False, rush_global=False, inaccurate=False
+            self, last_step_idxes: _LastStepIdxes, constr_graph: '_ConstrGraph'
     ):
         """Initialize the iterator."""
 
-        # Static data during the recursion.
-        self._adjs = adjs
-        self._base_infos = base_infos
-        self._cost_coeffs = _get_cost_coeffs(ranges)
-
-        self._greedy_cutoff = greedy_cutoff
-        self._drop_cutoff = drop_cutoff
-        self._rush_local = rush_local
-        self._rush_global = rush_global
-        self._inaccurate = inaccurate
+        # Static data during the recursion, cached here for easier and faster
+        # access.
+        self._constr_graph = constr_graph
+        self._opt = constr_graph.constr_graphs.opt
+        self._greedy_cutoff = self._opt.greedy_cutoff
+        self._drop_cutoff = self._opt.drop_cutoff
 
         # Dynamic data during the recursion.
         #
-        # Nodes and coefficients, for left and right.
-        self._curr = (
-            ([], []),
-            ([], [])
-        )
-        # The set of terms currently in the biclique.
-        self._terms = set()  # type: typing.Set[Symbol]
-        # The count of bases in the **unconstricted** terms.
-        self._bases = collections.Counter()
-        for k, v in base_infos.items():
-            self._bases[k] = v.count
-        # The stack of excess costs.
-        self._exc_costs = []
+        # Zipped nodes and coefficients, for left and right.
+        self._curr: _ConstrParts = ([], [])
+
         # The leading coefficient.
         self._leading_coeff = None
+
+        # The stack of actual saving.
+        #
+        # Keeping the saving as stack could save the cost of subtraction by
+        # using some additional memory.
+        self._savings = []
+
+        # The set of terms currently in the biclique.
+        self._terms = 0
+
+        # Gross saving of new vertices.
+        self._vert_gross: _VertGross = _VertGross(last_step_idxes)
 
     def __iter__(self):
         """Iterate over the maximal bicliques."""
 
+        exts = self._constr_graph.exts
         # All left and right nodes.
-        nodes = {
-            (i, j): _Delta(
-                coeff=_UNITY, terms=set(), bases={}, exc_cost=0, saving=0
+        subg = {
+            _DesVert(part=part, vert=vert): _Delta(
+                coeff=_UNITY, leading_coeff=None, terms=0, exc_cost=0
             )
-            for i, v in enumerate(self._adjs)
-            for j in v.keys()
+            for vert, info in self._constr_graph.verts
+            for part in _LRS
+            if info.exts == exts[part]
         }
 
-        assert len(nodes) > 0
+        assert len(subg) > 0
 
-        yield from self._expand(nodes, dict(nodes), dict(nodes), dict(nodes))
+        yield from self._expand(subg, set(subg.keys()))
 
         # If things all goes correctly, the stack should be reverted to initial
         # state by now.
-        for i in self._curr:
-            for j in i:
-                assert len(j) == 0
-                continue
-            continue
-
-        assert len(self._terms) == 0
-        for k, v in self._bases.items():
-            assert v == self._base_infos[k].count
-        assert len(self._exc_costs) == 0
+        assert all(len(i) == 0 for i in self._curr)
+        assert self._terms == 0
+        assert len(self._savings) == 0
         assert self._leading_coeff is None
 
         return
 
     def _expand(
-            self, subg: _Nodes, curr_subg: _Nodes,
-            cand: _Nodes, curr_cand: _Nodes
+            self, subg: _DesVertsWDelta, cand: _DesVerts,
     ):
         """Generate the bicliques from the current state.
 
         This is the core of the Bron-Kerbosch algorithm.
         """
 
-        exc_costs = self._exc_costs
-        depth = len(exc_costs)
-
-        # The current state.
+        # Cached variables of the current state.
         curr = self._curr
-        terms = self._terms
-        bases = self._bases
-        inaccurate = self._inaccurate
+        n_verts = tuple(len(i) for i in curr)
+
+        savings = self._savings
+        depth = len(savings)
+        curr_saving = savings[-1] if depth > 0 else 0
+        exts = self._constr_graph.exts
 
         # The code here are adapted from the code in NetworkX for maximal clique
         # problem of simple general graphs.  The original code are kept as much
@@ -577,438 +547,318 @@ class _BronKerbosch:
         # /clique.py#L277-L299
         #
 
+        if_maximal = all(i.saving < 0 for i in subg.values())
+
+        # Redundant check on biclique size is used to skip the possibly
+        # expansive saving comparison.
+        if_profitable = all(
+            i > 0 for i in n_verts
+        ) and any(i > 1 for i in n_verts) and curr_saving >= 0
+
+        if if_maximal and if_profitable:
+            # If maximal and profitable.
+            #
+            # if not subg_q:
+            #    yield Q[:]
+            #
+            yield _Biclique(
+                parts=curr, leading_coeff=self._leading_coeff,
+                terms=self._terms, saving=curr_saving,
+                constr_graph=self._constr_graph
+            )
+
+        # The quadratic loop.
+        subgq = {}
+        for q_v, q_d in subg.items():
+            subg_q = {}
+            subgq[q_v] = subg_q
+            for r_v, r_d in subg.items():
+                updated_r_d = self._update_delta(q_v, q_d, r_v, r_d)
+                if updated_r_d is not None:
+                    subg_q[r_v] = updated_r_d
+                continue
+            continue
+
         #
         # u = max(subg, key=lambda u: len(cand & adj[u]))
-        #
-        # Here it is very expensive to make sure that a node can be a pivot.
-        # Hence currently we do not perform it here.
-
-        # Recursion is stopped earlier than here.
-        assert len(curr_subg) > 0
-
-        to_loop = curr_cand.items()
-        if len(to_loop) == 0:
-            return
-
-        cut_greedy = (
-            0 <= self._greedy_cutoff <= depth
-        )
-        cut_full = (
-            0 <= self._drop_cutoff <= depth
-        )
-        if cut_greedy or cut_full:
-            greedy_saving = max(i[1].saving for i in to_loop)
-            to_loop = (
-                i for i in to_loop if i[1].saving == greedy_saving
-            )
-            if cut_full:
-                to_loop = [next(to_loop)]
-
-        #
         # for q in cand - adj[u]:
         #
-        for q, delta in to_loop:
+
+        # to_loop need to be eagerly evaluated for avoiding complication with
+        # the mutation of cand during the loop and the set operations for
+        # pivoting.
+
+        pivots: typing.Iterable[_DesVert] = []
+        if n_verts[0] == 0:
+            to_loop = {i for i in cand if i.part == 0}
+        elif n_verts[1] == 0:
+            to_loop = {i for i in cand if i.part == 1}
+            if exts[0] == exts[1]:
+                # First part, first vertex, the vertex
+                exist_vert: int = curr[0][0][0]
+                to_loop = {i for i in to_loop if i.vert > exist_vert}
+            gross = self._vert_gross[(1, 1)][1]
+            pivots = (
+                k for k, v in subg.items()
+                if k.part == 1 and gross - v.exc_cost >= 0
+            )
+        else:
+            to_loop = {i for i in cand if subg[i].saving >= 0}
+            if len(to_loop) == 0:
+                return
+
+            pivots = (k for k, v in subg.items() if v.saving > 0)
+
+            cut_greedy = 0 <= self._greedy_cutoff <= depth
+            cut_full = 0 <= self._drop_cutoff <= depth
+            if cut_greedy or cut_full:
+                greedy_saving = max(subg[i].saving for i in to_loop)
+                to_loop = {
+                    i for i in to_loop if subg[i].saving == greedy_saving
+                }
+                if cut_full:
+                    to_loop = {to_loop.pop()}
+                    pivots = []
+
+        # Designated vertices that can be excluded for each pivot.
+        fqs = (
+            {i for i in subgq[k].keys() if i.part == k.part}
+            for k in pivots
+        )
+        try:
+            excl = max(fqs, key=lambda x: len(x & to_loop))
+        except ValueError:
+            pass
+        else:
+            to_loop -= excl
+
+        for q_v in to_loop:
+            q_d = subg[q_v]
+            part, vert = q_v.part, q_v.vert
 
             #
             # cand.remove(q)
             #
-            colour, node = q
-            assert q in cand
-            del cand[q]
+            cand.remove(q_v)
 
             #
             # Q.append(q)
             #
-            new_terms = delta.terms
-            new_bases = delta.bases
-            curr[colour][0].append(node)
-            curr[colour][1].append(delta.coeff)
-            assert terms.isdisjoint(delta.terms)
-            terms |= new_terms
-            bases.subtract(new_bases)
-            exc_costs.append(delta.exc_cost)
-
-            oppos = _OPPOS[colour]
-            if len(curr[colour][0]) == 1 and len(curr[oppos][0]) > 0:
-                leading_edge = self._adjs[colour][node][
-                    curr[oppos][0][0]
-                ]
-                assert self._leading_coeff is None
-                self._leading_coeff = leading_edge.coeff
-
-            ns, saving = self._count_stack(inaccurate=inaccurate)
+            curr[part].append((vert, q_d.coeff))
+            if q_d.leading_coeff is not None:
+                self._leading_coeff = q_d.leading_coeff
+            new_terms = q_d.terms
+            assert self._terms & new_terms == 0
+            self._terms |= new_terms
+            savings.append(curr_saving + q_d.saving)
 
             #
             # adj_q = adj[q]
             # subg_q = subg & adj_q
             #
-            subg_q, curr_subg_q = self._filter_nodes(
-                subg, saving, colour, node
-            )
+            subg_q = subgq[q_v]
 
             #
             # if not subg_q:
             #    yield Q[:]
             #
-            if len(curr_subg_q) == 0:
+            # Moved to top for clarity.
+            #
 
-                # These cases cannot possibly give saving.
-                if_skip = any(i == 0 for i in ns) or all(
-                    i == 1 for i in ns
-                )
+            #
+            # cand_q = cand & adj_q
+            #
+            cand_q = {i for i in cand if i in subg_q}
 
-                if not if_skip:
+            # if cand_q:
+            #     for clique in expand(subg_q, cand_q):
+            #         yield clique
 
-                    # The total saving.
-                    if inaccurate:
-                        saving = saving.saving
-                        has_saving = saving > 0
-                        assert has_saving
-                    else:
-                        saving = saving.saving - sum(exc_costs)
-
-                        if not self._rush_global:
-                            for k, v in self._bases.items():
-                                if v > 0:
-                                    saving -= self._base_infos[k].cost * (
-                                        self._base_infos[k].count - v
-                                    )
-
-                        has_saving = saving > 0
-
-                    if has_saving:
-                        yield _Biclique(
-                            nodes=curr, leading_coeff=self._leading_coeff,
-                            terms=terms, saving=saving
-                        )
-
-            else:
-                #
-                # cand_q = cand & adj_q
-                #
-                cand_q, curr_cand_q = self._filter_nodes(
-                    cand, saving, colour, node
-                )
-
-                # if cand_q:
-                #     for clique in expand(subg_q, cand_q):
-                #         yield clique
-
-                if len(curr_cand_q) > 0:
-                    yield from self._expand(
-                        subg_q, curr_subg_q, cand_q, curr_cand_q
-                    )
+            yield from self._expand(subg_q, cand_q)
 
             #
             # Q.pop()
             #
-            for i in curr[colour]:
-                i.pop()
-            terms -= new_terms
-            bases.update(new_bases)
-            exc_costs.pop()
-            if len(curr[colour][0]) == 0:
+            curr[part].pop()
+            assert self._terms & new_terms == new_terms
+            self._terms ^= new_terms
+            savings.pop()
+            if q_d.leading_coeff is not None:
                 self._leading_coeff = None
 
-    def _filter_nodes(
-            self, nodes: _Nodes,
-            saving: _Saving, new_colour: _LR, new_node: Term
-    ) -> typing.Tuple[_Nodes, _Nodes]:
-        """Filter the nodes for the current stack.
-
-        In the original Bron-Kerbosch algorithm, both subg and cand are filtered
-        by union with the adjacent nodes of the newly added node.  Now the
-        computation can be a lot more complex than that.  We need to note,
-
-        1. No term already contained can be decomposed in another way in a
-        different evaluation.
-
-        2. The coefficients need to match the existing proportion.
-
-        We also have less to note in that we do not require any connectivity
-        among nodes with the same colour.
-
-        Here all expandable nodes and the profitable ones among them for the
-        current step will be returned.  The profitable nodes for the current
-        step contains only the nodes that is profitable right now.  The all
-        expandable nodes has all nodes that are valid to be augmented into the
-        current stack.
-        """
-
-        all_ = {}
-        for node_key, delta in nodes.items():
-            colour, node = node_key
-            res = self._update_delta(
-                new_colour, new_node, saving, colour, node, delta
-            )
-            if res is not None:
-                all_[node_key] = res
             continue
-
-        curr = {k: v for k, v in all_.items() if v.saving > 0}
-
-        return all_, curr
 
     def _update_delta(
-            self, new_colour, new_node, saving, colour, node, delta
+            self, new_v: _DesVert, new_d: _Delta,
+            curr_v: _DesVert, curr_d: _Delta
     ) -> typing.Optional[_Delta]:
-        """Update the delta when a new node is added to the stack.
+        """Update the delta assuming a new node is added to the stack.
 
-        This is the performance bottleneck of the Bron-Kerbosch algorithm.
+        This is the core and performance bottleneck of the Bron-Kerbosch
+        algorithm.
         """
 
-        adj = self._adjs[colour][node]
-        inaccurate = self._inaccurate
-
-        # Most basic filtering.  The node with the same colour as the new node
-        # will not be affected by the new addition.
-        if colour != new_colour and new_node not in adj:
+        new_terms = new_d.terms
+        curr_terms = curr_d.terms
+        if new_terms & curr_terms != 0:
             return None
 
-        oppos_curr = self._curr[_OPPOS[colour]]
-        if len(oppos_curr[0]) > 0:
-            leading_edge = adj[oppos_curr[0][0]]
+        new_p = new_v.part
+        curr_p = curr_v.part
+        curr_coeff = curr_d.coeff
+        new_leading_coeff = new_d.leading_coeff
+        curr_leading_coeff = curr_d.leading_coeff
+
+        updated_d = _Delta(
+            coeff=curr_coeff, leading_coeff=curr_leading_coeff,
+            terms=curr_terms, exc_cost=curr_d.exc_cost
+        )
+
+        if new_p == curr_p:
+            if new_leading_coeff is not None:
+                assert curr_leading_coeff is not None
+                updated_d.coeff = (
+                    curr_leading_coeff / new_leading_coeff
+                ).simplify()
+                updated_d.leading_coeff = None
         else:
-            leading_edge = None
 
-        if colour != new_colour:
-            new_edge = adj[new_node]
-
-            # We have at least the new node was just added.
-            assert leading_edge is not None
-            ratio = (new_edge.coeff / leading_edge.coeff).simplify()
-
-            if ratio != oppos_curr[1][-1]:
+            new_neighb = self._constr_graph.graph[new_v.vert]
+            curr_vert = curr_v.vert
+            if curr_vert not in new_neighb:
                 return None
+            edge = new_neighb[curr_vert]['info']
 
-            res_terms = set(delta.terms)
-            res_terms.add(new_edge.term)
+            edge_term = 1 << edge.term
+            if_conflict = (
+                edge_term & new_terms != 0 or edge_term & curr_terms != 0 or
+                edge_term & self._terms != 0
+            )
+            if if_conflict:
+                return None
+            updated_d.terms |= edge_term
 
-            res_bases = collections.Counter()
-            res_bases.update(delta.bases)
-            res_bases[new_edge.base] += 1
+            updated_d.exc_cost += edge.exc_cost
 
-            if inaccurate:
-                if delta.exc_cost != -1 and new_edge.exc_cost == 0:
-                    res_exc_cost = -1
-                else:
-                    res_exc_cost = delta.exc_cost
+            edge_coeff = edge.coeff
+
+            if new_leading_coeff is not None:
+                updated_d.coeff = (
+                    edge_coeff / new_leading_coeff
+                ).simplify()
+            elif self._leading_coeff is None:
+                updated_d.leading_coeff = edge_coeff
             else:
-                res_exc_cost = delta.exc_cost + new_edge.exc_cost
+                proj = edge_coeff / (self._leading_coeff * new_d.coeff)
+                if (proj - curr_coeff).simplify() != 0:
+                    return None
 
-        else:
-            res_terms = delta.terms
-            res_bases = delta.bases
-            res_exc_cost = delta.exc_cost
+        n_verts = [len(i) for i in self._curr]
+        n_verts[new_p] += 1
+        gross = self._vert_gross[tuple(n_verts)][curr_p]
 
-        if not res_terms.isdisjoint(self._terms):
-            return None
+        updated_d.saving = gross - updated_d.exc_cost
 
-        res_coeff = (
-            delta.coeff
-            if self._leading_coeff is None or leading_edge is None
-            else leading_edge.coeff / self._leading_coeff
-        )
-
-        base_saving = saving.deltas[colour]
-        if inaccurate:
-            res_saving = self._get_inaccurate_delta_saving(
-                base_saving, res_exc_cost, res_bases
-            )
-        else:
-            res_saving = self._get_delta_saving(
-                base_saving, res_exc_cost, res_bases
-            )
-
-        res_delta = _Delta(
-            coeff=res_coeff, terms=res_terms, bases=res_bases,
-            exc_cost=res_exc_cost, saving=res_saving
-        )
-
-        # Sanity checking, should be disabled in production.
-        # assert res_delta == self._form_delta(colour, node, saving)
-
-        return res_delta
-
-    def _get_delta_saving(self, base_saving, exc_cost, bases) -> Size:
-        """Get the saving incurred by applying a given delta."""
-        res = base_saving - exc_cost
-        if not self._rush_local:
-            for k, v in bases.items():
-                if self._bases[k] - v > 0:
-                    base_saving -= self._base_infos[k].cost * v
-                continue
-        return res
-
-    def _get_inaccurate_delta_saving(self, base_saving, exc_cost, bases):
-        """Get the saving incurred by a delta in inaccurate mode."""
-
-        if exc_cost == -1 or abs(base_saving) == float('inf'):
-            res_saving = base_saving
-        else:
-            res_saving = 0
-
-        curbed_by_common = not self._rush_local and any(
-            self._bases[k] - v > 0 for k, v in bases.items()
-        )
-        if curbed_by_common:
-            res_saving = 0
-
-        return res_saving
-
-    def _count_stack(self, inaccurate=False):
-        """Count the current size of the stack.
-
-        The saving will also be returned.
-        """
-        ns = tuple(
-            len(self._curr[i][0]) for i in [_LEFT, _RIGHT]
-        )
-        if inaccurate:
-            deltas = []
-            for i, j in zip(ns, reversed(ns)):
-                if i == 0:
-                    deltas.append(float('inf'))
-                elif j == 0:
-                    deltas.append(-float('inf'))
-                else:
-                    deltas.append(j)
-                continue
-            saving = _Saving(saving=ns[0] * ns[1], deltas=tuple(deltas))
-        else:
-            saving = _get_constr_saving(self._cost_coeffs, ns)
-        return ns, saving
-
-    def _form_delta(
-            self, colour: _LR, node: Term, saving: _Saving
-    ) -> typing.Optional[_Delta]:
-        """Form the delta for adding a new node from scratch.
-
-        When it is expandable, the relevant node information will be
-        returned, or None will be the result.
-
-        THIS FUNCTION IS DEPRECATED AND PENDING REMOVAL.  Currently it is only
-        used for the sanity checking of the optimized result.
-        """
-
-        # Cache frequently used information.
-        oppos_colour = _OPPOS[colour]
-        adjs = self._adjs[colour][node]
-        curr = self._curr
-        terms = self._terms
-
-        base_coeff = None
-        exc_cost = 0
-        new_terms = set()
-        new_bases = collections.Counter()
-
-        for i, v in enumerate(curr[oppos_colour][0]):
-            if v not in adjs:
-                return
-            edge = adjs[v]  # type: _Edge
-
-            if edge.term in terms or edge.term in new_terms:
-                return
-
-            coeff = edge.coeff
-            if i == 0:
-                base_coeff = coeff
-            ratio = coeff / base_coeff
-            if ratio != curr[oppos_colour][1][i]:
-                return
-
-            exc_cost += edge.exc_cost
-            new_terms.add(edge.term)
-            new_bases[edge.base] += 1
-
-            continue
-
-        # When we get here, it should be expandable now.
-        if self._leading_coeff is None:
-            coeff = _UNITY
-        else:
-            coeff = base_coeff / self._leading_coeff
-
-        new_saving = self._get_delta_saving(
-            saving.deltas[colour], exc_cost, new_bases
-        )
-
-        # For empty stack, we always get here with base information (coeff=1,
-        # new_terms=empty, exc_cost=0).
-        return _Delta(
-            coeff=coeff, terms=new_terms, bases=new_bases, exc_cost=exc_cost,
-            saving=new_saving
-        )
+        return updated_d
 
 
 class _ConstrGraph:
-    """Constriction graph for a given range combination.
+    """Constriction graph for a given involvement of indices.
 
-    We have separate graph for different range combinations.  For each range,
-    the graph has the factors as vertices, and actual evaluations with the
-    factors as edges.  Internally, the graph is stored as two sparse adjacent
-    lists.
+    We have separate graphs for different involved indices combinations.  For
+    each combination, the graph has the factors as vertices, and actual
+    evaluations with the factors as edges.  Internally, the graph is stored
+    as a NetworkX graph.
+
     """
 
-    def __init__(self):
-        """Initialize the constriction graph."""
-        self._adjs = (
-            collections.defaultdict(dict),
-            collections.defaultdict(dict)
-        )
+    def __init__(
+            self, constr_graphs: '_ConstrGraphs', exts_l: int, exts_r: int
+    ):
+        """Initialize the constriction graph.
 
-        self._terms = set()
-        self._base_infos = _BaseInfoDict()
+        graphs
+            The constriction graphs.
+
+        exts_l, exts_r
+
+            The pair of integers encoding the external indices involved by
+            the two parts of the graph.
+
+        """
+
+        self.constr_graphs = constr_graphs
+        self.exts = (exts_l, exts_r)
+
+        self.graph = Graph()
+        self._verts = {}  # From canonicalized factor to the vertex number.
+        self.terms = 0
 
         # The optimal biclique in the current graph.  None when it is not yet
-        # determined,  zero when it is determined that there is no profitable
+        # determined, False when it is determined that there is no profitable
         # biclique in the current graph.
         self._opt_saving = None
         self._opt_biclique = None
 
+    @property
+    def verts(self):
+        """The nodes in the graph as integers with the information."""
+        return (
+            (i, j['info'])
+            for i, j in self.graph.nodes_iter(data=True)
+        )
+
     def add_edge(
-            self, left, right, term, eval_, base, coeff,
-            opt_cost, eval_cost
+            self, node_infos: typing.Tuple[_VertInfo, _VertInfo],
+            coeff: Expr, term: int, eval_: '_Prod'
     ):
         """Add a new edge to the graph."""
 
-        edge = _Edge(
-            term=term, eval_=eval_, coeff=coeff,
-            exc_cost=eval_cost - opt_cost, base=base
+        graph = self.graph
+
+        nodes = []
+        for i in node_infos:
+            canon = i.canon
+            if canon in self._verts:
+                idx = self._verts[canon]
+            else:
+                idx = len(self._verts)
+                self._verts[canon] = idx
+                graph.add_node(idx, info=i)
+            nodes.append(idx)
+            continue
+
+        base_info = self.constr_graphs.term_bases[term]
+        assert base_info.count > 0
+        exc_cost = (
+            eval_.total_cost - base_info.node.total_cost
+            if base_info.count == 1 else eval_.total_cost
         )
 
-        left_adj = self._adjs[_LEFT][left]
-        if right not in left_adj:
-            left_adj[right] = edge
+        edge_info = _EdgeInfo(
+            term=term, eval_=eval_, coeff=coeff, exc_cost=exc_cost
+        )
+
+        n1, n2 = nodes
+        neighb1 = graph[n1]
+        if n2 in neighb1:
+            # It is possible that two evaluations actually the same be
+            # recorded twice in the evaluation of product nodes because of
+            # symmetry.
+            assert neighb1[n2]['info'].term == edge_info.term
         else:
-            # It is possible that two evaluations actually the same be recorded
-            # twice in the evaluation of product nodes because of symmetry.
-            assert left_adj[right].term == term
+            graph.add_edge(*nodes, info=edge_info)
 
-        right_adj = self._adjs[_RIGHT][right]
-        if left not in right_adj:
-            right_adj[left] = edge
-        else:
-            assert right_adj[left].term == term
-
-        if term not in self._terms:
-            self._terms.add(term)
-
-            # We do not need actual cost here.  For optimization purpose, the
-            # bases should always be read from the centralized base infos across
-            # all graphs.
-            self._base_infos.add_base(base, None)
+        self.terms |= 1 << term
 
     def get_opt_biclique(
-            self, ranges: _Ranges, base_infos: _BaseInfoDict,
-            greedy_cutoff=-1, drop_cutoff=-1,
-            rush_local=False, rush_global=False, inaccurate=False
+            self, last_step_idxes: _LastStepIdxes
     ) -> typing.Tuple[typing.Optional[Size], typing.Optional[_Biclique]]:
         """Get the optimal biclique in the current graph.
         """
 
         if self._opt_saving is not None:
-            if self._opt_saving == 0:
+            if self._opt_saving is False:
                 return None, None
             else:
                 return self._opt_saving, self._opt_biclique
@@ -1016,124 +866,155 @@ class _ConstrGraph:
         opt_saving = None
         opt_biclique = None
 
-        for biclique in self.gen_bicliques(
-                ranges, base_infos,
-                greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff,
-                rush_local=rush_local, rush_global=rush_global,
-                inaccurate=inaccurate
-        ):
+        for biclique in _BronKerbosch(last_step_idxes, self):
 
             saving = biclique.saving
 
             if opt_saving is None or saving > opt_saving:
                 opt_saving = saving
                 # Make copy only when we need them.
+                parts = biclique.parts
+                assert len(parts) == 2
                 opt_biclique = _Biclique(
-                    nodes=tuple(
-                        tuple(tuple(j) for j in i)
-                        for i in biclique.nodes
-                    ),
+                    parts=(list(parts[0]), list(parts[1])),
                     leading_coeff=biclique.leading_coeff,
-                    terms=frozenset(biclique.terms),
-                    saving=biclique.saving
+                    terms=biclique.terms, saving=biclique.saving,
+                    constr_graph=biclique.constr_graph
                 )
 
             continue
 
         if opt_saving is None:
             assert opt_biclique is None
-            self._opt_saving = 0
+            self._opt_saving = False
             self._opt_biclique = None
+            return None, None
         else:
-            if inaccurate:
-                saving = _get_constr_saving(_get_cost_coeffs(ranges), [
-                    len(i) for i in opt_biclique.nodes
-                ])
-                opt_biclique = opt_biclique._replace(saving=saving)
-
             self._opt_saving = opt_saving
             self._opt_biclique = opt_biclique
+            return opt_saving, opt_biclique
 
-        return opt_saving, opt_biclique
+    def remove_terms(self, terms: int) -> bool:
+        """Remove all edges for the given terms.
 
-    def gen_bicliques(
-            self, ranges: _Ranges, base_infos: _BaseInfoDict,
-            greedy_cutoff=-1, drop_cutoff=-1,
-            rush_local=False, rush_global=False, inaccurate=False
-    ) -> typing.Iterable[_Biclique]:
-        """Generate the bicliques within the graph.
-
-        For performance reasons, the bicliques generated will contain references
-        to internal mutable data.  It is the responsibility of the caller to
-        make proper copy when it is necessary.
+        Vertices no longer connected to anything is removed as well.  If a
+        value of True is returned, we have an empty graph after the removal.
         """
 
-        yield from _BronKerbosch(
-            self._adjs, base_infos, ranges,
-            greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff,
-            rush_local=rush_local, rush_global=rush_global,
-            inaccurate=inaccurate
-        )
+        graph = self.graph
 
-    def remove_terms(
-            self, terms: typing.AbstractSet[int], term_base,
-            updated_bases, base_infos
-    ) -> bool:
-        """Remove all edges and nodes involving the given terms.
+        if self.terms & terms != 0:
+            edges2remove = [
+                (n1, n2) for n1, n2, info in graph.edges_iter(data='info')
+                if 1 << info.term & terms != 0
+            ]
+            graph.remove_edges_from(edges2remove)
+            nodes2remove = [
+                i for i in graph.nodes_iter() if graph.degree(i) == 0
+            ]
+            graph.remove_nodes_from(nodes2remove)
 
-        If a value of True is returned, we have an empty graph after the
-        removal.
-        """
+            self.terms ^= self.terms & terms
 
-        if self._terms.isdisjoint(terms):
-            if_empty = False
-            if_updated = False
-        else:
-            if_updated = True
-
-            new_adjs = (
-                collections.defaultdict(dict),
-                collections.defaultdict(dict)
-            )
-            if_empty = True
-
-            for old, new in zip(self._adjs, new_adjs):
-                for from_node, conns in old.items():
-                    new_conns = {
-                        to_node: edge
-                        for to_node, edge in conns.items()
-                        if edge.term not in terms
-                    }
-                    if len(new_conns) > 0:
-                        if_empty = False
-                        new[from_node] = new_conns
-                    continue
-                continue
-
-            self._adjs = new_adjs
-
-            self._base_infos.remove_terms(terms & self._terms, term_base)
-            self._terms -= terms
-
-        # We need to update the maximum biclique when a base is recently updated
-        # such that it become exclusively-involved by this graph.
-        if_dirty = if_updated or any(
-            i in self._base_infos and
-            base_infos[i].count == self._base_infos[i].count
-            for i in updated_bases
-        )
-
-        if if_dirty:
+            # Reset cached optimal biclique.
             self._opt_saving = None
             self._opt_biclique = None
 
-        return if_empty
+        return graph.number_of_nodes() == 0
 
 
-_ConstrGraphs = typing.DefaultDict[_Ranges, _ConstrGraph]
+class _ConstrGraphs(typing.Dict[_LastStepIdxes, _ConstrGraph]):
+    """The constriction graphs from a sum of contractions.
+
+    The constriction graphs are organized according to their external and
+    summation indices involved by the factors in the last step to achieve
+    better performance with one big graph separated into pieces. With this
+    decomposition, for instance, we can cache maximum bicliques in subgraphs
+    unaffected by the latest constriction.
+
+    Here just the basic data is defined, with most actual operations directly
+    performed inside the optimizer.
+
+    Attributes
+    ----------
+
+    bases
+        The mapping from the actual base to the base info.
+
+    term_bases
+        The list of base info for each of the terms.
+
+    """
+
+    __slots__ = [
+        'opt',
+        'bases',
+        'term_bases'
+    ]
+
+    def __init__(self, opt: '_Optimizer'):
+        """Initialize the graphs.
+
+        Here only the most basic resource initialization is performed.
+        """
+        super().__init__()
+
+        self.opt = opt
+
+        self.bases: typing.Dict[_Base, _BaseInfo] = {}
+
+        # None for plain scalar terms.
+        self.term_bases: typing.List[typing.Optional[_BaseInfo]] = []
+
+    def get_opt_biclique(self) -> typing.Tuple[
+        typing.Optional[_LastStepIdxes], typing.Optional[_Biclique]
+    ]:
+        """Choose the most profitable biclique.
+        """
+
+        opt_saving = None
+        opt_last_step_idxes = None
+        opt_biclique = None
+        for last_step_idxes, constr_graph in self.items():
+
+            curr_opt_saving, curr_opt_biclique = constr_graph.get_opt_biclique(
+                last_step_idxes
+            )
+
+            if curr_opt_saving is None:
+                continue
+
+            if opt_saving is None or curr_opt_saving > opt_saving:
+                opt_saving = curr_opt_saving
+                opt_last_step_idxes = last_step_idxes
+                opt_biclique = curr_opt_biclique
+
+            continue
+
+        return opt_last_step_idxes, opt_biclique
+
+    def cleanup_constred(self, if_untouched: int, biclique: _Biclique) -> int:
+        """Clean up the terms after a constriction."""
+
+        terms = biclique.terms
+        assert if_untouched & terms == terms
+        if_untouched ^= terms
+
+        to_remove = []
+        for last_step_idxes, constr_graph in self.items():
+            if_empty = constr_graph.remove_terms(biclique.terms)
+            if if_empty:
+                to_remove.append(last_step_idxes)
+            continue
+        for i in to_remove:
+            del self[i]
+            continue
+
+        return if_untouched
 
 #
-# For product optimization.
+# Internals for product optimization
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #
 
 _Part = collections.namedtuple('_Part', [
@@ -1251,8 +1132,9 @@ class _Optimizer:
     #
 
     def __init__(
-            self, computs, substs, interm_fmt, strategy,
-            greedy_cutoff=-1, drop_cutoff=-1, remove_shallow=True
+            self, computs, substs, interm_fmt,
+            contr_strat, opt_sum, opt_symm,
+            greedy_cutoff, drop_cutoff, remove_shallow
     ):
         """Initialize the optimizer."""
 
@@ -1279,13 +1161,18 @@ class _Optimizer:
             for k, v in self._input_ranges.items()
         }
 
-        # Other internal data preparation.
-        self._interm_fmt = interm_fmt
-        self._strategy = strategy
-        self._greedy_cutoff = greedy_cutoff
-        self._drop_cutoff = drop_cutoff
-        self._remove_shallow = remove_shallow
+        # Storage of user options to be accessed during the optimization.
+        #
+        # Public for the each of accessing from other internal classes.
+        self.interm_fmt = interm_fmt
+        self.contr_strat = contr_strat
+        self.opt_sum = opt_sum
+        self.opt_symm = opt_symm
+        self.greedy_cutoff = greedy_cutoff
+        self.drop_cutoff = drop_cutoff
+        self.remove_shallow = remove_shallow
 
+        # Other internal data preparation.
         self._next_internal_idx = 0
 
         # From intermediate base to actual evaluation node.
@@ -1664,7 +1551,7 @@ class _Optimizer:
             return amp.xreplace(substs)
 
         # Cache some properties.
-        remove_shallow = self._remove_shallow
+        remove_shallow = self.remove_shallow
 
         res = []
         for comput in computs:
@@ -1704,7 +1591,7 @@ class _Optimizer:
 
                 final_base = (
                     Symbol if if_scalar else IndexedBase
-                )(self._interm_fmt.format(next_idx))
+                )(self.interm_fmt.format(next_idx))
                 next_idx += 1
                 substs[base] = final_base
             else:
@@ -2123,13 +2010,13 @@ class _Optimizer:
         exts = sum_node.exts
         scalars, terms, _ = self._organize_sum_terms(sum_node.sum_terms)
 
-        if self._strategy & Strategy.SUM > 0:
+        if self.opt_sum:
             new_terms, old_terms = self.constr_sum(terms, exts)
         else:
             new_terms = []
             old_terms = terms
 
-        if self._strategy & Strategy.COMMON > 0:
+        if self.opt_symm:
             old_terms = self._optimize_common_symmtrization(old_terms, exts)
 
         res_terms = scalars + old_terms + new_terms
@@ -2254,81 +2141,83 @@ class _Optimizer:
         """Constrict the summations greedily.
         """
 
-        if_keep = [True for _ in terms]
+        if_untouched = (1 << len(terms)) - 1
         new_terms = []
 
-        constr_graphs, base_infos, term_base = self._form_constr_graphs(
-            terms, exts
-        )
+        constr_graphs = self._form_constr_graphs(terms, exts)
 
         while True:
 
-            ranges, biclique = self._get_opt_biclique(
-                constr_graphs, base_infos
-            )
-            if ranges is None:
+            last_step_idxes, biclique = constr_graphs.get_opt_biclique()
+            if last_step_idxes is None:
                 break
 
-            new_terms.append(self._form_constred_term(ranges, biclique))
-            self._cleanup_constred(
-                biclique, constr_graphs, base_infos, term_base, if_keep
+            new_terms.append(self._form_constred_term(
+                last_step_idxes, biclique
+            ))
+            if_untouched = constr_graphs.cleanup_constred(
+                if_untouched, biclique
             )
 
             continue
         # End Main loop.
 
-        old_terms = [i for i, j in zip(terms, if_keep) if j]
-        return new_terms, old_terms
+        untouched_terms = [
+            v for i, v in enumerate(terms) if if_untouched & (1 << i) != 0
+        ]
+        return new_terms, untouched_terms
 
     def _form_constr_graphs(
             self, terms: typing.Sequence[Expr], exts: _SrPairs
-    ) -> typing.Tuple[_ConstrGraphs, _BaseInfoDict, typing.List[Symbol]]:
-        """Form the constriction graphics for the terms.
+    ) -> _ConstrGraphs:
+        """Form the constriction graphs for the terms.
 
         The additional information about the bases of each of the terms are
         also returned.
         """
 
-        coll = collections.defaultdict(_ConstrGraph)  # type: _ConstrGraphs
-        base_infos = _BaseInfoDict()
-        term_base = []
+        constr_graphs = _ConstrGraphs(self)
+        base_infos = constr_graphs.bases
+        term_bases = constr_graphs.term_bases
 
         for term_idx, term in enumerate(terms):
             ref = self._parse_interm_ref(term)
             if ref is None:
-                term_base.append(None)
+                term_bases.append(None)
                 continue
 
             base = ref.base
             node = self._interms[base]
             assert isinstance(node, _Prod)
 
+            if base in base_infos:
+                base_info = base_infos[base]
+            else:
+                base_info = _BaseInfo(base, node)
+
+            base_info.count += 1
+            term_bases.append(base_info)
+
             self._optimize(node)
-            for eval_idx, eval_ in enumerate(node.evals):
+            for eval_ in node.evals:
                 assert isinstance(eval_, _Prod)
-                self._find_collectibles_eval(
-                    term_idx, ref, eval_idx, eval_, exts, coll
+                self._aug_constr_graphs_4_eval(
+                    constr_graphs, term_idx, ref, eval_, exts
                 )
                 continue
 
-            base_infos.add_base(base, node.total_cost)
-            term_base.append(base)
+        return constr_graphs
 
-        return coll, base_infos, term_base
-
-    def _find_collectibles_eval(
-            self, term_idx: int, ref: _IntermRef, eval_idx: int, eval_: _Prod,
-            exts: _SrPairs, res: _ConstrGraphs
+    def _aug_constr_graphs_4_eval(
+            self, res: _ConstrGraphs, term_idx: int, ref: _IntermRef,
+            eval_: _Prod, exts: _SrPairs
     ):
-        """Get the collectibles for a particular evaluations of a product.
+        """Augment the constriction graphs for an evaluation.
         """
 
         if len(eval_.factors) < 2:
             return
         assert len(eval_.factors) == 2
-
-        eval_cost = eval_.total_cost
-        opt_cost = self._interms[ref.base].total_cost
 
         eval_terms = self._index_prod(eval_, ref.indices)
         assert len(eval_terms) == 1
@@ -2340,129 +2229,91 @@ class _Optimizer:
             self._interms, ext_symbs
         )
         coeff *= ref.coeff
+        assert len(factors) == 2
         assert factors[0] != factors[1]
 
         sums = tuple(sorted(
-            eval_term.sums, key=lambda x: default_sort_key(x[0])
+            eval_term.sums, key=lambda x: (x[1], default_sort_key(x[0]))
         ))
 
-        excl = self._excl | ext_symbs
+        excl = set(self._excl)
+        excl.update(ext_symbs)
         symms = self._drudge.symms.value
 
-        # Information about the (two) factors,
-        #
-        # expr: The original expression for the factor.
-        # exts: Indices of the involved externals.
-        # canon_content: The canonicalized content for the factor.
-        factor_infos = [
-            types.SimpleNamespace(expr=i) for i in factors
-        ]
+        factor_infos = []
 
-        for f_i in factor_infos:
-            content = self._get_content(f_i.expr)
+        for f_i in factors:
+            content = self._get_content(f_i)
             assert len(content) == 1
             content = content[0]
 
-            symbs = f_i.expr.atoms(Symbol)
-            f_i.exts = tuple(
+            symbs = f_i.atoms(Symbol)
+            exts_idxes = tuple(
                 i for i, v in enumerate(exts) if v[0] in symbs
-            )  # Index only.
+            )
+            exts_int = functools.reduce(operator.or_, (
+                1 << i for i in exts_idxes
+            ), 0)
 
             for i, _ in sums:
                 assert i in symbs
 
             # In order to really make sure, the content will be re-canonicalized
             # based on the current ambient.
-            canon_content = content.canon(symms=symms).reset_dumms(
+            canon = content.canon(symms=symms).reset_dumms(
                 self._dumms, excl=excl | content.free_vars
             )[0]
 
-            _, canon_coeff = canon_content.get_amp_factors(
+            _, canon_coeff = canon.get_amp_factors(
                 self._interms, ext_symbs
             )
-            f_i.canon_content = canon_content.map(
+            canon = canon.map(
                 lambda x: x / canon_coeff, skip_vecs=True
             )
             coeff *= canon_coeff
 
+            factor_infos.append((
+                tuple(exts[i] for i in exts_idxes),
+                _VertInfo(exts=exts_int, expr=f_i, canon=canon)
+            ))
             continue
 
-        factor_infos.sort(key=lambda x: x.exts)
+        factor_infos.sort(key=lambda x: x[1].exts)
+        assert len(factor_infos) == 2
+        last_step_idxes = _LastStepIdxes(
+            exts=(factor_infos[0][0], factor_infos[1][0]), sums=sums
+        )
 
-        l_exts, r_exts = [
-            tuple(exts[j] for j in i.exts)
-            for i in factor_infos
-        ]
-        ranges = _Ranges(exts=(l_exts, r_exts), sums=sums)
-
-        # When the left and right externals differ, the two factors have
-        # determined colour, or we need to add one of them for each colour
-        # assignment.
-        lr_factor_idxes = [(0, 1)]
-        if l_exts == r_exts:
-            lr_factor_idxes.append((1, 0))
-        lr_factors = [
-            tuple(factor_infos[j].canon_content for j in i)
-            for i in lr_factor_idxes
-        ]
-        for i in lr_factors:
-            res[ranges].add_edge(
-                left=i[0], right=i[1], term=term_idx, eval_=eval_idx,
-                base=ref.base, coeff=coeff, opt_cost=opt_cost,
-                eval_cost=eval_cost
+        if last_step_idxes in res:
+            constr_graph = res[last_step_idxes]
+        else:
+            constr_graph = _ConstrGraph(
+                res, factor_infos[0][1].exts, factor_infos[1][1].exts
             )
-            continue
+            res[last_step_idxes] = constr_graph
+
+        constr_graph.add_edge(
+            (factor_infos[0][1], factor_infos[1][1]),
+            coeff=coeff, term=term_idx, eval_=eval_
+        )
 
         return
 
-    def _get_opt_biclique(
-            self, constr_graphs: _ConstrGraphs, base_infos: _BaseInfoDict
-    ):
-        """Choose the most profitable biclique.
-        """
-
-        rush_local = self._strategy & Strategy.RUSH_LOCAL > 0
-        rush_global = self._strategy & Strategy.RUSH_GLOBAL > 0
-        inaccurate = self._strategy & Strategy.INACCURATE > 0
-
-        opt_saving = None
-        opt_ranges = None
-        opt_biclique = None
-        for ranges, graph in constr_graphs.items():
-
-            curr_opt_saving, curr_opt_biclique = graph.get_opt_biclique(
-                ranges, base_infos,
-                greedy_cutoff=self._greedy_cutoff,
-                drop_cutoff=self._drop_cutoff,
-                rush_local=rush_local, rush_global=rush_global,
-                inaccurate=inaccurate
-            )
-
-            if curr_opt_saving is None:
-                continue
-
-            if opt_saving is None or curr_opt_saving > opt_saving:
-                opt_saving = curr_opt_saving
-                opt_ranges = ranges
-                opt_biclique = curr_opt_biclique
-
-            continue
-
-        return opt_ranges, opt_biclique
-
     def _form_constred_term(
-            self, ranges: _Ranges, biclique: _Biclique
+            self, last_step_idxes: _LastStepIdxes, biclique: _Biclique
     ) -> Expr:
         """Form the factored term for the given constriction."""
 
+        verts = biclique.constr_graph.graph.node
+
         # Form and optimize the two new summation nodes.
         factors = [biclique.leading_coeff]
-        for exts_i, nodes_i in zip(ranges.exts, biclique.nodes):
+        for exts_i, part_i in zip(last_step_idxes.exts, biclique.parts):
             scaled_terms = [
-                i.scale(j) for i, j in zip(*nodes_i)
+                verts[i]['info'].canon.scale(j) for i, j in part_i
             ]
 
-            exts = exts_i + ranges.sums
+            exts = tuple(itertools.chain(exts_i, last_step_idxes.sums))
 
             if len(scaled_terms) > 1:
                 expr, eval_node = self._form_sum_interm(exts, scaled_terms)
@@ -2477,11 +2328,11 @@ class _Optimizer:
 
         # Form the contraction node for the two new summation nodes.
         exts = tuple(sorted(
-            set(itertools.chain.from_iterable(ranges.exts)),
+            set(itertools.chain.from_iterable(last_step_idxes.exts)),
             key=lambda x: default_sort_key(x[0])
         ))
         expr, eval_node = self._form_prod_interm(
-            exts, ranges.sums, factors
+            exts, last_step_idxes.sums, factors
         )
 
         # Make phony optimization of the intermediate.
@@ -2489,33 +2340,6 @@ class _Optimizer:
         eval_node.evals = [eval_node]
 
         return expr
-
-    @staticmethod
-    def _cleanup_constred(
-            biclique: _Biclique, constr_graphs: _ConstrGraphs,
-            base_infos: _BaseInfoDict, term_base: typing.List[Symbol],
-            if_keep: typing.List[bool]
-    ):
-        """Clean up the terms after a constriction."""
-
-        for i in biclique.terms:
-            assert if_keep[i]
-            if_keep[i] = False
-            continue
-
-        updated_bases = base_infos.remove_terms(biclique.terms, term_base)
-
-        to_remove = []
-        for ranges, graph in constr_graphs.items():
-            if_empty = graph.remove_terms(
-                biclique.terms, term_base, updated_bases, base_infos
-            )
-            if if_empty:
-                to_remove.append(ranges)
-            continue
-        for i in to_remove:
-            del constr_graphs[i]
-            continue
 
     #
     # Product optimization.
@@ -2539,28 +2363,44 @@ class _Optimizer:
             ) if sums_size != 1 else 0
             return
 
-        strategy = self._strategy & Strategy.PROD_MASK
+        contr_strat = self.contr_strat
+        greedy_mode = contr_strat == ContrStrat.GREEDY
+        normal_mode = (
+            contr_strat == ContrStrat.OPT or contr_strat == ContrStrat.TRAV
+        )
+        exhaust_mode = contr_strat == ContrStrat.EXHAUST
+        if_inclusive = (
+            contr_strat == ContrStrat.TRAV or
+            contr_strat == ContrStrat.EXHAUST
+        )
+
         evals = prod_node.evals
         optimal_cost = None
         for final_cost, broken_sums, parts_gen in self._gen_factor_parts(
                 prod_node
         ):
-            def need_break():
+            def need_break() -> bool:
                 """If we need to break the current loop."""
-                if strategy == Strategy.GREEDY:
+                if optimal_cost is None:
+                    return False
+
+                if greedy_mode:
                     return True
-                elif strategy == Strategy.BEST or strategy == Strategy.SEARCHED:
+                elif normal_mode:
                     return final_cost > optimal_cost
-                elif strategy == Strategy.ALL:
+                elif exhaust_mode:
                     return False
                 else:
                     assert False
 
-            if (optimal_cost is not None) and need_break():
+            if need_break():
                 break
             # Else
 
             for parts in parts_gen:
+
+                if need_break():
+                    break
 
                 # Recurse, two parts.
                 assert len(parts) == 2
@@ -2579,18 +2419,10 @@ class _Optimizer:
                 )
                 if if_new_optimal:
                     optimal_cost = total_cost
-                    if strategy == Strategy.BEST:
+                    if not if_inclusive:
                         evals.clear()
 
-                # New optimal is always added.
-                def need_add_eval():
-                    """If the current evaluation need to be added."""
-                    if strategy == Strategy.BEST:
-                        return total_cost == optimal_cost
-                    else:
-                        return True
-
-                if if_new_optimal or need_add_eval():
+                if if_new_optimal or if_inclusive:
                     new_eval = self._form_prod_eval(
                         prod_node, broken_sums, parts
                     )
@@ -2621,7 +2453,9 @@ class _Optimizer:
         )
 
         # Factors involving each of the summations, as iterable lists.
-        sum_infos = [[] for _ in range(len(sum2idx))]
+        sum_infos: typing.List[typing.List[int]] = [
+            [] for _ in range(len(sum2idx))
+        ]
 
         # Ext and sum involvements of factors.
         factor_infos = [[0, 0] for _ in factors]
