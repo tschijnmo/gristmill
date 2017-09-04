@@ -166,8 +166,8 @@ def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
 # The internal optimization engine
 # --------------------------------
 #
-# General small type definitions and functions
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# General small type definitions
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #
 
 # Base for tensor definitions.
@@ -210,6 +210,121 @@ class _IntermRef(typing.NamedTuple):
     def ref(self):
         """The reference to intermediate without coefficient."""
         return _index(self.base, self.indices) ** self.power
+
+
+#
+# Utility constants
+# ~~~~~~~~~~~~~~~~~
+#
+
+
+_ZERO = Integer(0)
+_UNITY = Integer(1)
+_NEG_UNITY = Integer(-1)
+
+_EXT = 0
+_SUMMED_EXT = 1
+_SUMMED = 2
+
+_SUBSTED_EVAL_BASE = Symbol('gristmillSubstitutedEvalBase')
+
+
+#
+# Global factories
+# ~~~~~~~~~~~~~~~~
+#
+
+
+class _SymbFactory(dict):
+    """A small symbol factory."""
+
+    def __missing__(self, key):
+        return Symbol('gristmillInternalSymbol{}'.format(key))
+
+
+_SYMB_FACTORY = _SymbFactory()
+
+
+class _WildFactory(dict):
+    """A small wild symbol factory."""
+
+    def __missing__(self, key):
+        return Wild('gristmillInternalWild{}'.format(key))
+
+
+_WILD_FACTORY = _WildFactory()
+
+
+#
+# Utility static functions
+# ~~~~~~~~~~~~~~~~~~~~~~~~
+#
+
+
+def _get_canon_coeff(coeffs, preferred):
+    """Get the canonical coefficient from a list of coefficients."""
+
+    expr = sum(
+        v * _SYMB_FACTORY[i] for i, v in enumerate(coeffs)
+    ).together()
+
+    frac = _UNITY  # The fractional part.
+    if isinstance(expr, Mul):
+        for i in expr.args:
+            if isinstance(i, Pow) and i.args[1] < 0:
+                frac *= i
+            continue
+        expr /= frac
+
+    coeff, _ = primitive(expr, *[
+        _SYMB_FACTORY[i] for i, _ in enumerate(coeffs)
+    ])
+
+    # Initial coefficient without phase.
+    init_coeff = coeff * frac
+
+    # The primitive computation does not take phase into account.
+    negs = []
+    poses = []
+    for i in coeffs:
+        i /= init_coeff
+        if i.has(_NEG_UNITY) or i.is_negative:
+            negs.append(-i)
+        else:
+            poses.append(i)
+        continue
+
+    neg_sig, pos_sig = [
+        (len(i), tuple(sorted(default_sort_key(j) for j in i)))
+        for i in [negs, poses]
+    ]
+    if neg_sig > pos_sig:
+        phase = _NEG_UNITY
+    elif pos_sig > neg_sig:
+        phase = _UNITY
+    else:
+        preferred_phase = (
+            _NEG_UNITY if preferred.has(_NEG_UNITY) or preferred.is_negative
+            else _UNITY
+        )
+        phase = preferred_phase
+
+    return (coeff * phase * frac).simplify()
+
+
+def _index(base, indices, strip=False) -> Expr:
+    """Index the given base with indices.
+
+    When strip is set to true, the indices are assumed to be symbol/range pairs
+    list.
+    """
+
+    if strip:
+        indices = tuple(i for i, _ in indices)
+    else:
+        indices = tuple(indices)
+
+    return base if len(indices) == 0 else IndexedBase(base)[indices]
 
 
 #
@@ -2649,112 +2764,6 @@ class _Optimizer:
             prod_node.base, prod_node.exts, broken_sums,
             coeff * prod_node.coeff, factors
         )
-
-
-#
-# Utility constants.
-#
-
-
-_ZERO = Integer(0)
-_UNITY = Integer(1)
-_NEG_UNITY = Integer(-1)
-
-_EXT = 0
-_SUMMED_EXT = 1
-_SUMMED = 2
-
-_SUBSTED_EVAL_BASE = Symbol('gristmillSubstitutedEvalBase')
-
-
-#
-# Utility static functions.
-#
-
-class _SymbFactory(dict):
-    """A small symbol factory."""
-
-    def __missing__(self, key):
-        return Symbol('gristmillInternalSymbol{}'.format(key))
-
-
-_SYMB_FACTORY = _SymbFactory()
-
-
-class _WildFactory(dict):
-    """A small wild symbol factory."""
-
-    def __missing__(self, key):
-        return Wild('gristmillInternalWild{}'.format(key))
-
-
-_WILD_FACTORY = _WildFactory()
-
-
-def _get_canon_coeff(coeffs, preferred):
-    """Get the canonical coefficient from a list of coefficients."""
-
-    expr = sum(
-        v * _SYMB_FACTORY[i] for i, v in enumerate(coeffs)
-    ).together()
-
-    frac = _UNITY  # The fractional part.
-    if isinstance(expr, Mul):
-        for i in expr.args:
-            if isinstance(i, Pow) and i.args[1] < 0:
-                frac *= i
-            continue
-        expr /= frac
-
-    coeff, _ = primitive(expr, *[
-        _SYMB_FACTORY[i] for i, _ in enumerate(coeffs)
-    ])
-
-    # Initial coefficient without phase.
-    init_coeff = coeff * frac
-
-    # The primitive computation does not take phase into account.
-    negs = []
-    poses = []
-    for i in coeffs:
-        i /= init_coeff
-        if i.has(_NEG_UNITY) or i.is_negative:
-            negs.append(-i)
-        else:
-            poses.append(i)
-        continue
-
-    neg_sig, pos_sig = [
-        (len(i), tuple(sorted(default_sort_key(j) for j in i)))
-        for i in [negs, poses]
-    ]
-    if neg_sig > pos_sig:
-        phase = _NEG_UNITY
-    elif pos_sig > neg_sig:
-        phase = _UNITY
-    else:
-        preferred_phase = (
-            _NEG_UNITY if preferred.has(_NEG_UNITY) or preferred.is_negative
-            else _UNITY
-        )
-        phase = preferred_phase
-
-    return (coeff * phase * frac).simplify()
-
-
-def _index(base, indices, strip=False) -> Expr:
-    """Index the given base with indices.
-
-    When strip is set to true, the indices are assumed to be symbol/range pairs
-    list.
-    """
-
-    if strip:
-        indices = tuple(i for i, _ in indices)
-    else:
-        indices = tuple(indices)
-
-    return base if len(indices) == 0 else IndexedBase(base)[indices]
 
 
 #
