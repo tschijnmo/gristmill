@@ -436,6 +436,39 @@ def _get_prod_final_cost(exts_total_size, sums_total_size) -> Size:
         return 2 * exts_total_size * sums_total_size
 
 
+def _gen_broken_sums(sums):
+    """Generate broken summations in increasing size of broken summations.
+
+    The size and the actual subset of broken summations are generated.
+    """
+
+    sizes = [i.size for _, i in sums]  # Sizes are assumed to be sorted.
+    n_sums = len(sizes)
+
+    init = Tuple4Cmp((1, 0))  # Nothing is broken.
+    queue = [init]
+    while len(queue) > 0:
+        curr = heapq.heappop(queue)
+        yield curr
+        curr_size, curr_broken = curr
+        next_idx = curr_broken.bit_length()
+        if next_idx < n_sums:
+            joined_size = curr_size * sizes[next_idx]
+            joined_set = curr_broken | 1 << next_idx
+            heapq.heappush(queue, Tuple4Cmp((
+                joined_size, joined_set
+            )))
+            if next_idx > 0:
+                top_idx = next_idx - 1
+                new_size, rem = divmod(joined_size, sizes[top_idx])
+                assert rem == 0
+                assert joined_set & 1 << top_idx
+                heapq.heappush(queue, Tuple4Cmp((
+                    new_size, joined_set ^ 1 << top_idx
+                )))
+        continue
+
+
 #
 # Internals for summation optimization
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2498,7 +2531,7 @@ class _Optimizer:
 
         evals = prod_node.evals
         optimal_cost = None
-        for final_cost, broken_sums, parts_gen in self._gen_factor_parts(
+        for final_cost, broken_sums, biparts_gen in self._gen_factor_biparts(
                 prod_node
         ):
             def need_break() -> bool:
@@ -2519,21 +2552,21 @@ class _Optimizer:
                 break
             # Else
 
-            for parts in parts_gen:
+            for bipart in biparts_gen:
 
                 if need_break():
                     break
 
                 # Recurse, two parts.
-                assert len(parts) == 2
-                for i in parts:
+                assert len(bipart) == 2
+                for i in bipart:
                     self._optimize(i.node)
                     continue
 
                 total_cost = (
                     final_cost
-                    + parts[0].node.total_cost
-                    + parts[1].node.total_cost
+                    + bipart[0].node.total_cost
+                    + bipart[1].node.total_cost
                 )
 
                 if_new_optimal = (
@@ -2546,7 +2579,7 @@ class _Optimizer:
 
                 if if_new_optimal or if_inclusive:
                     new_eval = self._form_prod_eval(
-                        prod_node, broken_sums, parts
+                        prod_node, broken_sums, bipart
                     )
                     new_eval.total_cost = total_cost
                     evals.append(new_eval)
@@ -2557,8 +2590,8 @@ class _Optimizer:
         prod_node.total_cost = optimal_cost
         return
 
-    def _gen_factor_parts(self, prod_node: _Prod):
-        """Generate all the partitions of factors in a product node."""
+    def _gen_factor_biparts(self, prod_node: _Prod):
+        """Generate all the bipartitions of factors in a product node."""
 
         #
         # Compute things invariant to different summations for performance.
@@ -2597,55 +2630,22 @@ class _Optimizer:
         # Actual two-level generation.
         #
 
-        for broken_size, broken in self._gen_broken_sums(sums):
+        for broken_size, broken in _gen_broken_sums(sums):
             broken_sums = [
                 v for i, v in enumerate(sums) if broken & (1 << i)
             ]  # Sums to be retained in the evaluation.
             final_cost = _get_prod_final_cost(
                 exts_total_size, broken_size
             )
-            yield final_cost, broken_sums, self._gen_parts_w_kept_sums(
+            yield final_cost, broken_sums, self._gen_biparts_w_kept_sums(
                 prod_node, broken, sum_infos, factor_infos
             )
             continue
 
-    @staticmethod
-    def _gen_broken_sums(sums):
-        """Generate broken summations in increasing size of broken summations.
-
-        The size and the actual subset of broken summations are generated.
-        """
-
-        sizes = [i.size for _, i in sums]  # Sizes are assumed to be sorted.
-        n_sums = len(sizes)
-
-        init = Tuple4Cmp((1, 0))  # Nothing is broken.
-        queue = [init]
-        while len(queue) > 0:
-            curr = heapq.heappop(queue)
-            yield curr
-            curr_size, curr_broken = curr
-            next_idx = curr_broken.bit_length()
-            if next_idx < n_sums:
-                joined_size = curr_size * sizes[next_idx]
-                joined_set = curr_broken | 1 << next_idx
-                heapq.heappush(queue, Tuple4Cmp((
-                    joined_size, joined_set
-                )))
-                if next_idx > 0:
-                    top_idx = next_idx - 1
-                    new_size, rem = divmod(joined_size, sizes[top_idx])
-                    assert rem == 0
-                    assert joined_set & 1 << top_idx
-                    heapq.heappush(queue, Tuple4Cmp((
-                        new_size, joined_set ^ 1 << top_idx
-                    )))
-            continue
-
-    def _gen_parts_w_kept_sums(
+    def _gen_biparts_w_kept_sums(
             self, prod_node: _Prod, broken, sum_infos, factor_infos
     ):
-        """Generate all partitions with given summations kept.
+        """Generate all bipartitions with given summations kept.
 
         First the factors are divided into chunks indivisible according to
         the kept summations.  Then their bipartitions which really break the
@@ -2717,15 +2717,15 @@ class _Optimizer:
                     continue
 
                 yield tuple(
-                    self._form_part(prod_node, broken, *i) for i in [
+                    self._form_part_interm(prod_node, broken, *i) for i in [
                         (exts1, sums1, factors1), (exts2, sums2, factors2)
                     ]
                 )
 
         return
 
-    def _form_part(self, prod_node, broken, exts, sums, factors):
-        """Form a partition for the given factors."""
+    def _form_part_interm(self, prod_node, broken, exts, sums, factors):
+        """Form an intermediate for a partition for the given factors."""
 
         factors_list = [
             v for i, v in enumerate(prod_node.factors) if factors & 1 << i
