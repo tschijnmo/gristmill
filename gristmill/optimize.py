@@ -67,7 +67,7 @@ class ContrStrat(enum.Enum):
 
 def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
              interm_fmt='tau^{}', contr_strat=ContrStrat.TRAV, opt_sum=True,
-             opt_symm=True, greedy_cutoff=-1, drop_cutoff=-1,
+             opt_symm=True, req_an_opt=False, greedy_cutoff=-1, drop_cutoff=-1,
              remove_shallow=True) -> typing.List[TensorDef]:
     """Optimize the evaluation of the given tensor computations.
 
@@ -114,6 +114,17 @@ def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
         computing :math:`p_{a, b} = x_{a, b} + y_{a, b}` followed by
         :math:`p_{a, b} - 2 p_{b, a}`.
 
+    req_an_opt
+        If each constriction operation is required to have optimal
+        parenthesization for at lease one of its terms.  This requirement
+        attempts to accelerate the constriction searching by having a smaller
+        number of branches at the first-edge level of the recursion tree.
+        However, it has a chance of giving deteriorated optimization, and it is
+        not guaranteed to be faster since pivoting at this level have to be
+        disabled.  So it is set as False by default.  It might be worth
+        experimenting for large inputs, especially with exhaust strategy for
+        contractions, or when greedy is turned on.
+
     greedy_cutoff
         The depth cutoff for making greedy selection in constriction. Beyond
         this depth in the recursion tree (inclusive), only the choices making
@@ -155,6 +166,7 @@ def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
     opt = _Optimizer(
         computs, substs=substs, interm_fmt=interm_fmt,
         contr_strat=contr_strat, opt_sum=opt_sum, opt_symm=opt_symm,
+        req_an_opt=req_an_opt,
         greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff,
         remove_shallow=remove_shallow
     )
@@ -727,6 +739,7 @@ class _BronKerbosch:
         # access.
         self._constr_graph = constr_graph
         self._opt = constr_graph.constr_graphs.opt
+        self._req_an_opt = self._opt.req_an_opt
         self._greedy_cutoff = self._opt.greedy_cutoff
         self._drop_cutoff = self._opt.drop_cutoff
 
@@ -854,11 +867,14 @@ class _BronKerbosch:
                 # First part, first vertex, the vertex
                 exist_vert: int = curr[0][0][0]
                 to_loop = {i for i in to_loop if i.vert > exist_vert}
-            gross = self._vert_gross[(1, 1)][1]
-            pivots = (
-                k for k, v in subg.items()
-                if k.part == 1 and gross - v.exc_cost >= 0
-            )
+            if self._req_an_opt:
+                to_loop = {i for i in to_loop if subg[i].exc_cost == 0}
+            else:
+                gross = self._vert_gross[(1, 1)][1]
+                pivots = (
+                    k for k, v in subg.items()
+                    if k.part == 1 and gross - v.exc_cost >= 0
+                )
         else:
             to_loop = {i for i in cand if subg[i].saving >= 0}
             if len(to_loop) == 0:
@@ -1000,10 +1016,12 @@ class _BronKerbosch:
             edge_coeff = edge.coeff
 
             if new_leading_coeff is not None:
+                # The previous node gives the first edge.
                 updated_d.coeff = (
                     edge_coeff / new_leading_coeff
                 ).simplify()
             elif self._leading_coeff is None:
+                # This node gives the first edge.
                 updated_d.leading_coeff = edge_coeff
             else:
                 proj = edge_coeff / (self._leading_coeff * new_d.coeff)
@@ -1288,7 +1306,7 @@ class _Optimizer:
 
     def __init__(
             self, computs, substs, interm_fmt,
-            contr_strat, opt_sum, opt_symm,
+            contr_strat, opt_sum, opt_symm, req_an_opt,
             greedy_cutoff, drop_cutoff, remove_shallow
     ):
         """Initialize the optimizer."""
@@ -1323,6 +1341,7 @@ class _Optimizer:
         self.contr_strat = contr_strat
         self.opt_sum = opt_sum
         self.opt_symm = opt_symm
+        self.req_an_opt = req_an_opt
         self.greedy_cutoff = greedy_cutoff
         self.drop_cutoff = drop_cutoff
         self.remove_shallow = remove_shallow
