@@ -13,10 +13,15 @@ completely in sync with the description in the manuscripts.  This also brings
 significant performance boost.  For instance, for the optimization for problems
 with terms composed of a large number of factors, the contraction optimization
 algorithm has been upgraded with bits replacing hash tables for storing and
-manipulating factor/summation sets. Significant improvements in performance can
-be seen in problems with say 20 factors.
+manipulating factor/summation sets.  Improvements by several orders-of-magnitude
+in performance can be seen in problems with say 20 factors.  Even for problems
+with a small number of factors, usually performance boost by about ten times can
+be expected from the improvements in the summation optimizer.
 
-A minor new feature is the addition of an option to disable the inlining of
-shallow intermediates in the optimizer.  This can be used in cases where the
-default behaviour is undesired.
+A minor new feature is the addition of an option (``remove_shallow``) to disable
+the inlining of shallow intermediates in the optimizer.  This can be used in
+cases where the default behaviour is undesired.  Also an option named
+``req_an_opt`` can be used to possibly accelerate the optimization for
+large-scale problems at the sacrifice of optimization quality.  Also the tests
+has been cleaned up for better coverage.
 
