@@ -62,9 +62,9 @@ class BasePrinter:
         indices
             A list of external indices.  For each entry, keys ``index`` and
             ``range`` are present to give the printed form of the index and the
-            range it is over. For convenience, ``lower``, ``upper``, and
-            ``size`` have the printed form of lower/upper bounds and the size of
-            the range.  We also have ``lower_expr``, ``upper_expr``, and
+            range object that it is over. For convenience, ``lower``, ``upper``,
+            and ``size`` have the printed form of lower/upper bounds and the
+            size of the range.  We also have ``lower_expr``, ``upper_expr``, and
             ``size_expr`` for the unprinted expression of them.
 
         terms
@@ -293,7 +293,30 @@ def mangle_base(func):
     the ``indexed_proc_cb`` argument of :py:meth:`BasePrinter.__init__`
     constructor.
 
-    This function can also be used as a function decorator.
+    This function can also be used as a function decorator.  For instance, for a
+    tensor with name ``f``, when we have operations on subspaces of the indices
+    but the tensor is stored as a whole, we might want to print the base as
+    slices depending on the range of the indices given to it.  If we have two
+    ranges stored in variables ``o`` and ``v`` and they are over the indices
+    ``0:m`` and ``m:n``, the following function::
+
+        @mangle_base
+        def print_indexed_base(base, indices):
+            o_slice = '0:m'
+            v_slice = 'm:n'
+            if base == 'f':
+                return 'f[{}]'.format(','.join(
+                    o_slice if i.range == o else v_slice for i in indices
+                ))
+            else:
+                return base
+
+    can be given to the ``indexed_proc_cb`` argument of
+    :py:meth:`BasePrinter.__init__` constructor, so that all appearances of
+    ``f`` will be printed as the correct slice depending on the range of the
+    indices.  When different slices of ``f`` are actually stored in different
+    variables, we can also return the correct variable name inside the function.
+
     """
 
     @functools.wraps(func)
