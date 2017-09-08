@@ -120,7 +120,7 @@ def test_ccsd_doubles(parthole_drudge):
     """Test discovery of effective T in CCSD doubles equation.
 
     The purpose of this test is similar to the CCSD energy test.  Just here the
-    more complexity about the external indices necessitates using ``ALL``
+    more complexity about the external indices necessitates using ``EXHAUST``
     strategy for optimization.  Also the usage of fully-given numeric size is
     also tested here.
     """

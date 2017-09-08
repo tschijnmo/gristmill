@@ -1,6 +1,8 @@
 """
-Test of the single-term optimization based on matrix chain product.
+Test of the basic functionality of gristmill by basic matrix problems.
 
+Matrices are the simplest tensors.  Here we have simple matrix examples that are
+very easy to think about.
 """
 
 import pytest
@@ -30,7 +32,7 @@ def three_ranges(spark_ctx):
     n_range = Range('N', 0, n)
     l_range = Range('L', 0, l)
 
-    dr.set_dumms(m_range, symbols('a b c'))
+    dr.set_dumms(m_range, symbols('a b c d e f g'))
     dr.set_dumms(n_range, symbols('i j k'))
     dr.set_dumms(l_range, symbols('p q r'))
     dr.add_resolver_for_dumms()
@@ -129,3 +131,109 @@ def test_matrix_chain_with_sum(three_ranges):
     assert leading_cost == mult_cost
     cost = get_flop_cost(eval_seq)
     assert cost == mult_cost + m * n + n * l + l * m
+
+
+def test_matrix_factorization(three_ranges):
+    """Test a basic matrix multiplication factorization problem.
+
+    In this test, there are four matrices involved, X, Y, U, and V.  And they
+    are used in two test cases for different scenarios.
+
+    """
+
+    #
+    # Basic context setting-up.
+    #
+
+    dr = three_ranges
+    p = dr.names
+
+    m = p.m
+    a, b, c, d = p.a, p.b, p.c, p.d
+
+    # The indexed bases.
+    x = IndexedBase('X')
+    y = IndexedBase('Y')
+    u = IndexedBase('U')
+    v = IndexedBase('V')
+    t = IndexedBase('T')
+
+    #
+    # Test case 1.
+    #
+    # The final expression to optimize is mathematically
+    #
+    # .. math::
+    #
+    #     (2 X - Y) * (2 U + V)
+    #
+    # Here, the expression is to be given in its extended form originally, and
+    # we test if it can be factorized into something similar to what we have
+    # above. Here we have the signs and coefficients to have better code
+    # coverage for these cases.  This test case more concentrates on the
+    # horizontal complexity in the input.
+    #
+
+    # The target.
+    target = dr.define_einst(
+        t[a, b],
+        4 * x[a, c] * u[c, b] + 2 * x[a, c] * v[c, b]
+        - 2 * y[a, c] * u[c, b] - y[a, c] * v[c, b]
+    )
+    targets = [target]
+
+    # The actual optimization.
+    res = optimize(targets)
+    assert len(res) == 3
+
+    # Test the correctness.
+    assert verify_eval_seq(res, targets, simplify=False)
+
+    # Test the cost.
+    cost = get_flop_cost(res)
+    leading_cost = get_flop_cost(res, leading=True)
+    assert cost == 2 * m ** 3 + 2 * m ** 2
+    assert leading_cost == 2 * m ** 3
+    cost = get_flop_cost(res, ignore_consts=False)
+    assert cost == 2 * m ** 3 + 4 * m ** 2
+
+    #
+    # Test case 2.
+    #
+    # The final expression to optimize is mathematically
+    #
+    # .. math::
+    #
+    #     (X - 2 Y) * U * V
+    #
+    # Different from the first test case, here we concentrate more on the
+    # treatment of depth complexity in the input.  The sum intermediate needs to
+    # be factored again.
+    #
+
+    # The target.
+    target = dr.define_einst(
+        t[a, b], x[a, c] * u[c, d] * v[d, b] - 2 * y[a, c] * u[c, d] * v[d, b]
+    )
+    targets = [target]
+
+    # The actual optimization.
+    res = optimize(targets)
+    assert len(res) == 3
+
+    # Test the correctness.
+    assert verify_eval_seq(res, targets, simplify=True)
+
+    # Test the cost.
+    cost = get_flop_cost(res)
+    leading_cost = get_flop_cost(res, leading=True)
+    assert cost == 4 * m ** 3 + m ** 2
+    assert leading_cost == 4 * m ** 3
+    cost = get_flop_cost(res, ignore_consts=False)
+    assert cost == 4 * m ** 3 + 2 * m ** 2
+
+    # Test disabling summation optimization.
+    res = optimize(targets, opt_sum=False)
+    assert verify_eval_seq(res, targets, simplify=True)
+    new_cost = get_flop_cost(res, ignore_consts=False)
+    assert new_cost - cost != 0
