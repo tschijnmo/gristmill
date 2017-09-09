@@ -89,5 +89,6 @@ ENV/
 .ropeproject
 
 /.idea/workspace.xml
+/.idea/markdown*
 /tests/test-env.sh
 /scratch/
