@@ -275,3 +275,74 @@ def test_disconnected_outer_product_factorization(three_ranges):
     leading_cost = get_flop_cost(res, leading=True)
     assert cost == 4 * m ** 2
     assert leading_cost == 4 * m ** 2
+
+
+def test_optimization_of_common_terms(three_ranges):
+    """Test optimization of common terms in summations.
+
+    In this test, there are just two matrices involved, X, Y.  The target reads
+
+    .. math::
+
+        T[a, b] = X[a, b] - X[b, a] + 2 Y[a, b] - 2 Y[b, a]
+
+    Ideally, it should be evaluated as,
+
+    .. math::
+
+        I[a, b] = X[a, b] + 2 Y[a, b]
+        T[a, b] = I[a, b] - I[b, a]
+
+    or,
+
+    .. math::
+
+        I[a, b] = X[a, b] - 2 Y[b, a]
+        T[a, b] = I[a, b] - I[b, a]
+
+    Here, in order to emulate real cases where common term reference is in
+    interplay with factorization, the X and Y matrices are written as :math:`X =
+    S U` and :math:`Y = S V`.
+
+    """
+
+    #
+    # Basic context setting-up.
+    #
+
+    dr = three_ranges
+    p = dr.names
+
+    m = p.m
+    a, b, c, d = p.a, p.b, p.c, p.d
+
+    # The indexed bases.
+    s = IndexedBase('S')
+    u = IndexedBase('U')
+    v = IndexedBase('V')
+
+    x = dr.define(IndexedBase('X')[a, b], s[a, c] * u[c, b])
+    y = dr.define(IndexedBase('Y')[a, b], s[a, c] * v[c, b])
+    t = dr.define_einst(
+        IndexedBase('t')[a, b],
+        x[a, b] - x[b, a] + 2 * y[a, b] - 2 * y[b, a]
+    )
+
+    targets = [t]
+    eval_seq = optimize(targets)
+    assert len(eval_seq) == 3
+
+    # Check correctness.
+    verify_eval_seq(eval_seq, targets)
+
+    # Check cost.
+    cost = get_flop_cost(eval_seq)
+    assert cost == 2 * m ** 3 + 2 * m ** 2
+    cost = get_flop_cost(eval_seq, ignore_consts=False)
+    assert cost == 2 * m ** 3 + 3 * m ** 2
+
+    # Check the result when the common symmetrization optimization is disabled.
+    eval_seq = optimize(targets, opt_symm=False)
+    verify_eval_seq(eval_seq, targets)
+    new_cost = get_flop_cost(eval_seq, ignore_consts=True)
+    assert new_cost - cost != 0
