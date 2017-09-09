@@ -33,7 +33,7 @@ def three_ranges(spark_ctx):
     l_range = Range('L', 0, l)
 
     dr.set_dumms(m_range, symbols('a b c d e f g'))
-    dr.set_dumms(n_range, symbols('i j k'))
+    dr.set_dumms(n_range, symbols('i j k l m n'))
     dr.set_dumms(l_range, symbols('p q r'))
     dr.add_resolver_for_dumms()
     dr.set_name(m, n, l)
@@ -346,3 +346,64 @@ def test_optimization_of_common_terms(three_ranges):
     verify_eval_seq(eval_seq, targets)
     new_cost = get_flop_cost(eval_seq, ignore_consts=True)
     assert new_cost - cost != 0
+
+
+def test_eval_compression(three_ranges):
+    """Test compression of optimized evaluations.
+
+    Here we have two targets,
+
+    .. math::
+
+        U X V + U Y V
+
+    and
+
+    .. math::
+
+        U X W + U Y W
+
+    and it has been deliberately made such that the multiplication with U
+    should be carried out first.  Then after the factorization of U, we have
+    an intermediate U (X + Y), which is a sum of a single product
+    intermediate.  This test succeeds when we have two intermediates only,
+    without the unnecessary addition of a single product.
+
+    """
+
+    # Basic context setting-up.
+    dr = three_ranges
+    p = dr.names
+
+    a = p.a  # Small range
+    i, j, k = p.i, p.j, p.k  # Big range
+
+    # The indexed bases.
+    u = IndexedBase('U')
+    v = IndexedBase('V')
+    w = IndexedBase('W')
+    x = IndexedBase('X')
+    y = IndexedBase('Y')
+
+    s = IndexedBase('S')
+    t = IndexedBase('T')
+
+    # The target.
+    s_def = dr.define_einst(
+        s[i, j],
+        u[i, k] * x[k, j] + u[i, k] * y[k, j]
+    )
+    targets = [dr.define_einst(
+        t[i, j],
+        s_def[i, a] * v[a, j]
+    ), dr.define_einst(
+        t[i, j],
+        s_def[i, a] * w[a, j]
+    )]
+
+    # The actual optimization.
+    res = optimize(targets, substs=dr.substs)
+    assert len(res) == 4
+
+    # Test the correctness.
+    assert verify_eval_seq(res, targets, simplify=False)
