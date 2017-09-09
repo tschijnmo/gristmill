@@ -97,50 +97,6 @@ def test_matrix_chain(three_ranges):
     assert leading_cost == expected_cost
 
 
-def test_matrix_chain_with_sum(three_ranges):
-    """Test a matrix chain multiplication with sums.
-
-    This test has a matrix chain multiplication where each of the factors are
-    actually a sum of two matrices.
-
-    """
-
-    dr = three_ranges
-    p = dr.names
-    m, n, l = p.m, p.n, p.l
-
-    # The indexed bases.
-    x = dr.define(
-        IndexedBase('x')[p.a, p.i],
-        IndexedBase('x1')[p.a, p.i] + IndexedBase('x2')[p.a, p.i]
-    )
-    y = dr.define(
-        IndexedBase('y')[p.i, p.p],
-        IndexedBase('y1')[p.i, p.p] + IndexedBase('y2')[p.i, p.p]
-    )
-    z = dr.define(
-        IndexedBase('z')[p.p, p.b],
-        IndexedBase('z1')[p.p, p.b] + IndexedBase('z2')[p.p, p.b]
-    )
-
-    target = dr.define_einst(
-        IndexedBase('t')[p.a, p.b],
-        x[p.a, p.i] * y[p.i, p.p] * z[p.p, p.b]
-    )
-    targets = [target]
-
-    eval_seq = optimize(targets, substs=dr.substs)
-
-    # Check the correctness.
-    assert verify_eval_seq(eval_seq, targets)
-    assert len(eval_seq) == 5
-    leading_cost = get_flop_cost(eval_seq, leading=True)
-    mult_cost = 2 * l * m * n + 2 * m ** 2 * n
-    assert leading_cost == mult_cost
-    cost = get_flop_cost(eval_seq)
-    assert cost == mult_cost + m * n + n * l + l * m
-
-
 def test_shallow_matrix_factorization(three_ranges):
     """Test a shallow matrix multiplication factorization problem.
 
@@ -312,6 +268,59 @@ def test_factorization_of_two_products(three_ranges):
     # Test the cost.
     cost = get_flop_cost(res)
     assert cost == 4 * m ** 3 + 4 * m ** 2
+
+
+def test_general_matrix_problem(three_ranges):
+    """Test optimization of a very general matrix computation.
+
+    This is a very general problem trying to test and illustrate many different
+    aspects of the optimization, parenthesization, recursion to newly-formed
+    factors, and sum of disjoint factorizations.  The target to evaluate reads
+
+    .. math::
+
+        (A + 2B) (3C + 5D) (7E + 13F) + (17P + 19Q) (23X + 29Y)
+
+    where
+
+    - A, B, P, Q is over ranges M, L
+    - C, D is over M, N
+    - E, F is over N, L
+    - X, Y is over L, N
+
+    """
+
+    dr = three_ranges
+    p = dr.names
+
+    m, n, l = p.m, p.n, p.l
+    a, b = p.a, p.b
+    i = p.i
+    p = p.p
+
+    f1 = IndexedBase('A')[a, i] + 2 * IndexedBase('B')[a, i]
+    f2 = 3 * IndexedBase('C')[i, p] + 5 * IndexedBase('D')[i, p]
+    f3 = 7 * IndexedBase('E')[p, b] + 13 * IndexedBase('F')[p, b]
+    f4 = 17 * IndexedBase('P')[a, i] + 19 * IndexedBase('Q')[a, i]
+    f5 = 23 * IndexedBase('X')[i, b] + 29 * IndexedBase('Y')[i, b]
+
+    target = dr.define_einst(
+        IndexedBase('R')[a, b],
+        (f1 * f2 * f3 + f4 * f5).expand()
+    )
+    targets = [target]
+    assert target.n_terms == 12
+    assert get_flop_cost(targets).subs(dr.substs) == (
+        144 * m ** 4 + 16 * m ** 3 + 11 * m ** 2
+    )
+
+    eval_seq = optimize(targets, substs=dr.substs)
+
+    # Check the correctness.
+    assert verify_eval_seq(eval_seq, targets)
+    assert len(eval_seq) == 7
+    cost = get_flop_cost(eval_seq)
+    assert cost.subs(dr.substs) == 20 * m ** 3 + 16 * m ** 2
 
 
 #
