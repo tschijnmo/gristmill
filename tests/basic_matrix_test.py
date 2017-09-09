@@ -133,11 +133,21 @@ def test_matrix_chain_with_sum(three_ranges):
     assert cost == mult_cost + m * n + n * l + l * m
 
 
-def test_matrix_factorization(three_ranges):
-    """Test a basic matrix multiplication factorization problem.
+def test_shallow_matrix_factorization(three_ranges):
+    """Test a shallow matrix multiplication factorization problem.
 
-    In this test, there are four matrices involved, X, Y, U, and V.  And they
-    are used in two test cases for different scenarios.
+    In this test, there are four matrices involved, X, Y, U, and V.  The final
+    expression to optimize is mathematically
+
+    .. math::
+
+        (2 X - Y) * (2 U + V)
+
+    Here, the expression is to be given in its expanded form originally, and
+    we test if it can be factorized into something similar to what we have
+    above. Here we have the signs and coefficients to have better code
+    coverage for these cases.  This test case more concentrates on the
+    horizontal complexity in the input.
 
     """
 
@@ -157,22 +167,6 @@ def test_matrix_factorization(three_ranges):
     u = IndexedBase('U')
     v = IndexedBase('V')
     t = IndexedBase('T')
-
-    #
-    # Test case 1.
-    #
-    # The final expression to optimize is mathematically
-    #
-    # .. math::
-    #
-    #     (2 X - Y) * (2 U + V)
-    #
-    # Here, the expression is to be given in its extended form originally, and
-    # we test if it can be factorized into something similar to what we have
-    # above. Here we have the signs and coefficients to have better code
-    # coverage for these cases.  This test case more concentrates on the
-    # horizontal complexity in the input.
-    #
 
     # The target.
     target = dr.define_einst(
@@ -197,19 +191,39 @@ def test_matrix_factorization(three_ranges):
     cost = get_flop_cost(res, ignore_consts=False)
     assert cost == 2 * m ** 3 + 4 * m ** 2
 
+
+def test_deep_matrix_factorization(three_ranges):
+    """Test a basic matrix multiplication factorization problem.
+
+    Similar to the shallow factorization test, the final expression to optimize
+    is mathematically
+
+    .. math::
+
+        (X - 2 Y) * U * V
+
+    Different from the shallow test case, here we concentrate more on the
+    treatment of depth complexity in the input.  The sum intermediate needs to
+    be factored again.
+
+    """
+
     #
-    # Test case 2.
+    # Basic context setting-up.
     #
-    # The final expression to optimize is mathematically
-    #
-    # .. math::
-    #
-    #     (X - 2 Y) * U * V
-    #
-    # Different from the first test case, here we concentrate more on the
-    # treatment of depth complexity in the input.  The sum intermediate needs to
-    # be factored again.
-    #
+
+    dr = three_ranges
+    p = dr.names
+
+    m = p.m
+    a, b, c, d = p.a, p.b, p.c, p.d
+
+    # The indexed bases.
+    x = IndexedBase('X')
+    y = IndexedBase('Y')
+    u = IndexedBase('U')
+    v = IndexedBase('V')
+    t = IndexedBase('T')
 
     # The target.
     target = dr.define_einst(
