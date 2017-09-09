@@ -48,6 +48,12 @@ def three_ranges(spark_ctx):
     return dr
 
 
+#
+# Test of core functionality
+# --------------------------
+#
+
+
 def test_matrix_chain(three_ranges):
     """Test a basic matrix chain multiplication problem.
 
@@ -253,6 +259,65 @@ def test_deep_matrix_factorization(three_ranges):
     assert verify_eval_seq(res, targets, simplify=True)
     new_cost = get_flop_cost(res, ignore_consts=False)
     assert new_cost - cost != 0
+
+
+def test_factorization_of_two_products(three_ranges):
+    """Test a sum where we have two disjoint products.
+
+    The final expression to optimize is
+
+    .. math::
+
+        2 X (3 U + 5 V) - 7 Y (11 U + 13 V) + 17 T
+
+    In this test case, we concentrate on the handling of multiple disjoint
+    possible factorization inside a single sum.
+
+    """
+
+    #
+    # Basic context setting-up.
+    #
+
+    dr = three_ranges
+    p = dr.names
+
+    m = p.m
+    a, b, c = p.a, p.b, p.c
+
+    # The indexed bases.
+    x = IndexedBase('X')
+    y = IndexedBase('Y')
+    u = IndexedBase('U')
+    v = IndexedBase('V')
+    t = IndexedBase('T')
+
+    # The target.
+    target = dr.define_einst(
+        IndexedBase('r')[a, b],
+        6 * x[a, c] * u[c, b] + 10 * x[a, c] * v[c, b]
+        - 77 * y[a, c] * u[c, b] - 91 * y[a, c] * v[c, b]
+        + 17 * t[a, b]
+    )
+    targets = [target]
+
+    # The actual optimization.
+    res = optimize(targets)
+    assert len(res) == 3
+    assert res[-1].n_terms == 3
+
+    # Test the correctness.
+    assert verify_eval_seq(res, targets, simplify=True)
+
+    # Test the cost.
+    cost = get_flop_cost(res)
+    assert cost == 4 * m ** 3 + 4 * m ** 2
+
+
+#
+# Test of special cases
+# ---------------------
+#
 
 
 def test_disconnected_outer_product_factorization(three_ranges):
