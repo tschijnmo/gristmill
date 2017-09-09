@@ -1,4 +1,5 @@
-"""Test on computations from CC theories."""
+"""Tests about optimizations of problems from coupled-cluster theories.
+"""
 
 import pytest
 from drudge import PartHoleDrudge

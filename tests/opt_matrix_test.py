@@ -1,8 +1,10 @@
 """
-Test of the basic functionality of gristmill by basic matrix problems.
+Test of the basic optimization functionality by basic matrix problems.
 
 Matrices are the simplest tensors.  Here we have simple matrix examples that are
-very easy to think about.
+very easy to think about.  All the core optimization strategies should first be
+tested here.
+
 """
 
 import pytest

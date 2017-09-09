@@ -1,4 +1,5 @@
-"""Test optimization of different special kinds of tensors."""
+"""Test optimization of different special kinds of tensor computations.
+"""
 
 import pytest
 from drudge import Drudge, Range
