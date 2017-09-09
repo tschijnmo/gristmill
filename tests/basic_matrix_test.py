@@ -237,3 +237,41 @@ def test_matrix_factorization(three_ranges):
     assert verify_eval_seq(res, targets, simplify=True)
     new_cost = get_flop_cost(res, ignore_consts=False)
     assert new_cost - cost != 0
+
+
+def test_disconnected_outer_product_factorization(three_ranges):
+    """Test optimization of expressions with disconnected outer products.
+    """
+
+    dr = three_ranges
+    p = dr.names
+
+    m = p.m
+    a, b, c, d, e = p.a, p.b, p.c, p.d, p.e
+
+    # The indexed bases.
+    u = IndexedBase('U')
+    x = IndexedBase('X')
+    y = IndexedBase('Y')
+    z = IndexedBase('Z')
+    t = IndexedBase('T')
+
+    # The target.
+    target = dr.define_einst(
+        t[a, b],
+        u[a, b] * z[c, e] * x[e, c] + u[a, b] * z[c, e] * y[e, c]
+    )
+    targets = [target]
+
+    # The actual optimization.
+    res = optimize(targets)
+    assert len(res) == 3
+
+    # Test the correctness.
+    assert verify_eval_seq(res, targets, simplify=False)
+
+    # Test the cost.
+    cost = get_flop_cost(res)
+    leading_cost = get_flop_cost(res, leading=True)
+    assert cost == 4 * m ** 2
+    assert leading_cost == 4 * m ** 2
