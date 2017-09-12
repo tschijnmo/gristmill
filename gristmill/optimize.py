@@ -2042,7 +2042,11 @@ class _Optimizer:
         exts = grain.exts
         terms = grain.terms
 
-        assert len(terms) > 0
+        if len(terms) == 0:
+            raise ValueError(
+                'Tensor is constant zero, probably it is not what you meant',
+                grain.base
+            )
         return self._form_sum_from_terms(
             grain.base, exts, terms
         )
