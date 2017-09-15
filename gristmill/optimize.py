@@ -1143,6 +1143,22 @@ class _ConstrGraph:
         """Add a new edge to the graph."""
 
         graph = self.graph
+        term_bases = self.constr_graphs.term_bases
+        repeated_terms_strat = self.constr_graphs.opt.repeated_terms_strat
+
+        # Treat excess cost first, since it might lead to direct return.
+        base_info = term_bases[term]
+        count = base_info.count
+        assert count > 0
+        if count == 1 or repeated_terms_strat == RepeatedTermsStrat.IGNORE:
+            exc_cost = eval_.total_cost - base_info.node.total_cost
+        elif repeated_terms_strat == RepeatedTermsStrat.SKIP:
+            return
+        elif repeated_terms_strat == RepeatedTermsStrat.NATURAL:
+            exc_cost = eval_.total_cost
+        else:
+            exc_cost = None  # For linter.
+            assert None
 
         nodes = []
         for i in node_infos:
@@ -1155,13 +1171,6 @@ class _ConstrGraph:
                 graph.add_node(idx, info=i)
             nodes.append(idx)
             continue
-
-        base_info = self.constr_graphs.term_bases[term]
-        assert base_info.count > 0
-        exc_cost = (
-            eval_.total_cost - base_info.node.total_cost
-            if base_info.count == 1 else eval_.total_cost
-        )
 
         edge_info = _EdgeInfo(
             term=term, eval_=eval_, coeff=coeff, exc_cost=exc_cost
