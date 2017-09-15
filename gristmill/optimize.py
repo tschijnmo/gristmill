@@ -2359,26 +2359,37 @@ class _Optimizer:
         constr_graphs = _ConstrGraphs(self)
         base_infos = constr_graphs.bases
         term_bases = constr_graphs.term_bases
+        term_ref_nodes = []
 
         for term_idx, term in enumerate(terms):
             ref = self._parse_interm_ref(term)
             if ref is None:
                 term_bases.append(None)
+                term_ref_nodes.append((None, None))
                 continue
 
             base = ref.base
             node = self._interms[base]
             assert isinstance(node, _Prod)
+            term_ref_nodes.append((ref, node))
 
             if base in base_infos:
                 base_info = base_infos[base]
             else:
                 base_info = _BaseInfo(base, node)
+                base_infos[base] = base_info
 
             base_info.count += 1
             term_bases.append(base_info)
 
             self._optimize(node)
+            continue
+
+        # This loop should have the correct bases count.
+        for term_idx, term in enumerate(terms):
+            ref, node = term_ref_nodes[term_idx]
+            if ref is None:
+                continue
             for eval_ in node.evals:
                 assert isinstance(eval_, _Prod)
                 self._aug_constr_graphs_4_eval(
