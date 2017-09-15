@@ -1,0 +1,5 @@
+0.7.0
+~~~~~
+
+This release is a relatively small release.  The handling of repeated terms in
+sums can now be finely turned.  Also some error messages to users are updated.
