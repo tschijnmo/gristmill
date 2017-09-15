@@ -23,6 +23,9 @@ Evaluation Optimization
 .. autoclass:: ContrStrat
     :members:
 
+.. autoclass:: RepeatedTermsStrat
+    :members:
+
 .. autofunction:: verify_eval_seq
 
 .. autofunction:: get_flop_cost

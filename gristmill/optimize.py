@@ -65,8 +65,54 @@ class ContrStrat(enum.Enum):
     EXHAUST = 3
 
 
+class RepeatedTermsStrat(enum.Enum):
+    """Optimization for repeated terms in a sum.
+
+    In some sum of tensor contractions, some terms might be different components
+    of the same computed tensor.  For instance, in
+
+    .. math::
+
+        r_{a, b} = s_a t_b + s_b t_a
+
+    if we define
+
+    .. math::
+
+        i_{a, b} = s_a t_b
+
+    the two terms are actually :math:`i_{a, b}` and :math:`i_{b, a}`.  For
+    problem with repeated terms, we have strategies,
+
+    ``SKIP``
+
+        Repeated terms are simply skipped during the optimization by
+        factorization.  In this way, repeated terms are guaranteed not to be
+        computed twice even implicitly.
+
+    ``NATURAL``
+
+        Repeated terms participates factorization only when faster evaluation is
+        given by this.  Technically, this is achieved by setting the excess cost
+        of the evaluation of the terms to be the **full cost** of the
+        evaluation, rather than the difference with the optimal cost.  This
+        setting should give acceptable result for most purposes.
+
+    ``IGNORE``
+
+        Ignore the fact that the terms are repeated.  They are going to be
+        treated exactly like other terms.
+
+    """
+
+    SKIP = 0
+    NATURAL = 1
+    IGNORE = 2
+
+
 def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
              interm_fmt='tau^{}', contr_strat=ContrStrat.TRAV, opt_sum=True,
+             repeated_terms_strat=RepeatedTermsStrat.NATURAL,
              opt_symm=True, req_an_opt=False, greedy_cutoff=-1, drop_cutoff=-1,
              remove_shallow=True) -> typing.List[TensorDef]:
     """Optimize the evaluation of the given tensor computations.
@@ -102,6 +148,10 @@ def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
     contr_strat
         The strategy for handling contractions, as explained in
         :py:class:`ContrStrat`.
+
+    repeated_terms_strat
+        The strategy for handling repeated terms in sums, as explained in
+        :py:class:`RepeatedTermsStrat`.
 
     opt_sum
         If sums of multiple terms will be attempted to be optimized by using
@@ -165,8 +215,9 @@ def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
 
     opt = _Optimizer(
         computs, substs=substs, interm_fmt=interm_fmt,
-        contr_strat=contr_strat, opt_sum=opt_sum, opt_symm=opt_symm,
-        req_an_opt=req_an_opt,
+        contr_strat=contr_strat, opt_sum=opt_sum,
+        repeated_terms_strat=repeated_terms_strat,
+        opt_symm=opt_symm, req_an_opt=req_an_opt,
         greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff,
         remove_shallow=remove_shallow
     )
@@ -1308,7 +1359,7 @@ class _Optimizer:
 
     def __init__(
             self, computs, substs, interm_fmt,
-            contr_strat, opt_sum, opt_symm, req_an_opt,
+            contr_strat, opt_sum, repeated_terms_strat, opt_symm, req_an_opt,
             greedy_cutoff, drop_cutoff, remove_shallow
     ):
         """Initialize the optimizer."""
@@ -1342,6 +1393,7 @@ class _Optimizer:
         self.interm_fmt = interm_fmt
         self.contr_strat = contr_strat
         self.opt_sum = opt_sum
+        self.repeated_terms_strat = repeated_terms_strat
         self.opt_symm = opt_symm
         self.req_an_opt = req_an_opt
         self.greedy_cutoff = greedy_cutoff
