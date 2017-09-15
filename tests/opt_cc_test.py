@@ -5,7 +5,9 @@ import pytest
 from drudge import PartHoleDrudge
 from sympy import IndexedBase, Symbol, Rational
 
-from gristmill import optimize, verify_eval_seq, ContrStrat, get_flop_cost
+from gristmill import (
+    optimize, verify_eval_seq, ContrStrat, get_flop_cost, RepeatedTermsStrat
+)
 
 
 @pytest.fixture(scope='module')
@@ -214,14 +216,16 @@ def test_ccsd_doubles_complex_terms(parthole_drudge):
     }
 
     # Simple a term or b term should work well both with full backtrack and
-    # greedily.
+    # greedily.  But repeated terms need to be ignored for full factorization.
     for term in [a_term, b_term]:
         tensor = dr.define_einst(IndexedBase('r')[a, b, i, j], term)
         targets = [tensor]
         for drop_cutoff in [-1, 2]:
             eval_seq = optimize(
                 targets, substs=substs,
-                contr_strat=ContrStrat.EXHAUST, drop_cutoff=drop_cutoff
+                contr_strat=ContrStrat.EXHAUST,
+                repeated_terms_strat=RepeatedTermsStrat.IGNORE,
+                drop_cutoff=drop_cutoff
             )
             assert verify_eval_seq(eval_seq, targets)
             # Here we just assert that the final step is a simple product.
@@ -232,7 +236,9 @@ def test_ccsd_doubles_complex_terms(parthole_drudge):
         targets = [tensor]
         eval_seq = optimize(
             targets, substs={p.nv: p.no * 1.1},
-            contr_strat=ContrStrat.EXHAUST, drop_cutoff=drop_cutoff
+            contr_strat=ContrStrat.EXHAUST,
+            repeated_terms_strat=RepeatedTermsStrat.IGNORE,
+            drop_cutoff=drop_cutoff
         )
         assert verify_eval_seq(eval_seq, targets)
         # Here we assert that the two products are separately factored.
