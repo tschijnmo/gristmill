@@ -559,6 +559,8 @@ class _BaseInfo:
         self.node = node
         self.count: int = 0
 
+        return
+
 
 #
 # Intermediate data and results for the Kron-Kerbosch process.
