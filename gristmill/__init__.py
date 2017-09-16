@@ -10,7 +10,7 @@ from .generate import (
 from .optimize import optimize, verify_eval_seq, ContrStrat, RepeatedTermsStrat
 from .utils import get_flop_cost
 
-__version__ = '0.7.0'
+__version__ = '0.8.0dev0'
 
 __all__ = [
     'ContrStrat',
