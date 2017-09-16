@@ -3,5 +3,5 @@
 
 This release is a relatively small release.  The handling of repeated terms in
 sums can now be finely turned by values in the
-``RepeatedTermsStrat``enumeration.  Also some error messages to users are
+``RepeatedTermsStrat`` enumeration.  Also some error messages to users are
 updated for clearer indication of the problem.
