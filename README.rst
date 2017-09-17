@@ -13,46 +13,36 @@ The optimizer utilizes novel advanced algorithm to efficiently parenthesize and
 factorize tensor computations for less arithmetic cost.  For instance, a matrix
 chain product
 
-.. image:: http://www.sciweavers.org/tex2img.php?eq=%5Cmathbf%7BR%7D%20%3D%20%5Cmathbf%7BA%7D%20%5Cmathbf%7BB%7D%20%5Cmathbf%7BC%7D&bc=Transparent&fc=Black&im=png&fs=12&ff=mathpazo&edit=0
+.. image:: https://latex.codecogs.com/svg.latex?%5Cmathbf%7BR%7D%3D%5Cmathbf%7BA%7D%5Cmathbf%7BB%7D%5Cmathbf%7BC%7D
     :align: center
-    :alt: \mathbf{R} = \mathbf{A} \mathbf{B} \mathbf{C}
-    :width: 75
-    :height: 14
+    :alt: \mathbf{R}=\mathbf{A}\mathbf{B}\mathbf{C}
 
 can be parenthesized into
 
-.. image:: http://www.sciweavers.org/tex2img.php?eq=%5Cmathbf%7BR%7D%20%3D%20%5Cleft%28%5Cmathbf%7BA%7D%20%5Cmathbf%7BB%7D%5Cright%29%20%5Cmathbf%7BC%7D&bc=Transparent&fc=Black&im=png&fs=12&ff=mathpazo&edit=0
+.. image:: https://latex.codecogs.com/svg.latex?%5Cmathbf%7BR%7D%3D%5Cleft%28%5Cmathbf%7BA%7D%5Cmathbf%7BB%7D%5Cright%29%5Cmathbf%7BC%7D
     :align: center
-    :alt: \mathbf{R} = \left(\mathbf{A} \mathbf{B}\right) \mathbf{C}
-    :width: 92
-    :height: 19
+    :alt: \mathbf{R}=\left(\mathbf{A}\mathbf{B}\right)\mathbf{C}
 
 or
 
-.. image:: http://www.sciweavers.org/tex2img.php?eq=%5Cmathbf%7BR%7D%20%3D%20%5Cmathbf%7BA%7D%20%5Cleft%28%20%5Cmathbf%7BB%7D%20%5Cmathbf%7BC%7D%5Cright%29&bc=Transparent&fc=Black&im=png&fs=12&ff=mathpazo&edit=0
+.. image:: https://latex.codecogs.com/svg.latex?%5Cmathbf%7BR%7D%3D%5Cmathbf%7BA%7D%5Cleft%28%5Cmathbf%7BB%7D%5Cmathbf%7BC%7D%5Cright%29
     :align: center
-    :alt: \mathbf{R} = \mathbf{A} \left( \mathbf{B} \mathbf{C}\right)
-    :width: 92
-    :height: 19
+    :alt: \mathbf{R}=\mathbf{A}\left(\mathbf{B}\mathbf{C}\right)
 
 depending on which one of them incurs less arithmetic cost for the given shapes
 of the matrices.  With just a small overhead relative to specialized dynamic
 programming code for matrix chain products, general tensor contractions are
 supported.  For instance, the ladder term in the CCD theory in quantum chemistry
 
-.. image:: http://www.sciweavers.org/tex2img.php?eq=%20%20r_%7Ba%2C%20b%2C%20i%2C%20j%7D%20%3D%20%5Csum_%7Bc%2C%20d%20%3D%201%7D%5Ev%20%5Csum_%7Bk%2C%20l%20%3D%201%7D%5Eo%0A%20%20v_%7Bk%2C%20l%2C%20c%2C%20d%7D%20t_%7Bc%2C%20d%2C%20i%2C%20j%7D%20t_%7Ba%2C%20b%2C%20k%2C%20l%7D&bc=Transparent&fc=Black&im=png&fs=12&ff=mathpazo&edit=0
+.. image:: https://latex.codecogs.com/svg.latex?r_%7Babij%7D%3D%5Csum_%7Bc%2Cd%3D1%7D%5Ev%5Csum_%7Bk%2Cl%3D1%7D%5Eov_%7Bklcd%7Dt_%7Bcdij%7Dt_%7Babkl%7D
     :align: center
-    :alt: r_{a, b, i, j} = \sum_{c, d = 1}^v \sum_{k, l = 1}^o  v_{k, l, c, d} t_{c, d, i, j} t_{a, b, k, l}
-    :width: 244
-    :height: 47
+    :alt: r_{abij}=\sum_{c,d=1}^v\sum_{k,l=1}^ov_{klcd}t_{cdij}t_{abkl}
 
 can be automatically parenthesized into a two-step evaluation
 
-.. image:: http://www.sciweavers.org/tex2img.php?eq=%5Cbegin%7Baligned%7D%0A%20%20p_%7Bk%2C%20l%2C%20i%2C%20j%7D%20%26%3D%20%5Csum_%7Bc%2C%20d%20%3D%201%7D%5Ev%20v_%7Bk%2C%20l%2C%20c%2C%20d%7D%20t_%7Bc%2C%20d%2C%20i%2C%20j%7D%20%5C%5C%0A%20%20r_%7Ba%2C%20b%2C%20i%2C%20j%7D%20%26%3D%20%5Csum_%7Bk%2C%20l%20%3D%201%7D%5Eo%20p_%7Bk%2C%20l%2C%20i%2C%20j%7D%20t_%7Ba%2C%20b%2C%20k%2C%20l%7D%20%5C%5C%0A%5Cend%7Baligned%7D&bc=Transparent&fc=Black&im=png&fs=12&ff=mathpazo&edit=0
+.. image:: https://latex.codecogs.com/svg.latex?%5Cbegin%7Baligned%7Dp_%7Bklij%7D%26%3D%5Csum_%7Bc%2Cd%3D1%7D%5Evv_%7Bklcd%7Dt_%7Bcdij%7D%5C%5Cr_%7Babij%7D%26%3D%5Csum_%7Bk%2Cl%3D1%7D%5Eop_%7Bklij%7Dt_%7Babkl%7D%5Cend%7Baligned%7D
     :align: center
-    :alt: \begin{aligned}  p_{k, l, i, j} &= \sum_{c, d = 1}^v v_{k, l, c, d} t_{c, d, i, j} \\  r_{a, b, i, j} &= \sum_{k, l = 1}^o p_{k, l, i, j} t_{a, b, k, l} \end{aligned}
-    :width: 175
-    :height: 100
+    :alt: \begin{aligned}p_{klij}&=\sum_{c,d=1}^vv_{klcd}t_{cdij}\\r_{abij}&=\sum_{k,l=1}^op_{klij}t_{abkl}\end{aligned}
 
 Because of the efficiency of the algorithm, contraction of even twenty factors
 can be handled well.
@@ -62,19 +52,15 @@ When computing sums of multiple contractions, factorizations of some or all
 terms leading to savings of arithmetic cost can also be automatically found.
 For instance, the correlation energy of the CCSD theory in quantum chemistry,
 
-.. image:: http://www.sciweavers.org/tex2img.php?eq=%20%20%20%20%20%20e%20%3D%0A%20%20%20%20%20%20%5Cfrac%7B1%7D%7B4%7D%20%5Csum_%7Bi%20%3D%201%7D%5E%7Bo%7D%20%5Csum_%7Bj%20%3D%201%7D%5E%7Bo%7D%0A%20%20%20%20%20%20%5Csum_%7Ba%20%3D%201%7D%5E%7Bv%7D%20%5Csum_%7Bb%20%3D%201%7D%5E%7Bv%7D%20u_%7Bijab%7D%20%5C%2C%20t%5E%7B%282%29%7D_%7Babij%7D%0A%20%20%20%20%20%20%2B%0A%20%20%20%20%20%20%5Cfrac%7B1%7D%7B2%7D%20%5Csum_%7Bi%20%3D%201%7D%5E%7Bo%7D%20%5Csum_%7Bj%20%3D%201%7D%5E%7Bo%7D%0A%20%20%20%20%20%20%5Csum_%7Ba%20%3D%201%7D%5E%7Bv%7D%20%5Csum_%7Bb%20%3D%201%7D%5E%7Bv%7D%20u_%7Bijab%7D%20%5C%2C%20t%5E%7B%281%29%7D_%7Bai%7D%20%5C%2C%20t%5E%7B%281%29%7D_%7Bbj%7D&bc=Transparent&fc=Black&im=png&fs=12&ff=mathpazo&edit=0
+.. image:: https://latex.codecogs.com/svg.latex?e%3D%5Cfrac%7B1%7D%7B4%7D%5Csum_%7Bi%3D1%7D%5E%7Bo%7D%5Csum_%7Bj%3D1%7D%5E%7Bo%7D%5Csum_%7Ba%3D1%7D%5E%7Bv%7D%5Csum_%7Bb%3D1%7D%5E%7Bv%7Du_%7Bijab%7D%5C%2Ct%5E%7B%282%29%7D_%7Babij%7D%2B%5Cfrac%7B1%7D%7B2%7D%5Csum_%7Bi%3D1%7D%5E%7Bo%7D%5Csum_%7Bj%3D1%7D%5E%7Bo%7D%5Csum_%7Ba%3D1%7D%5E%7Bv%7D%5Csum_%7Bb%3D1%7D%5E%7Bv%7Du_%7Bijab%7D%5C%2Ct%5E%7B%281%29%7D_%7Bai%7D%5C%2Ct%5E%7B%281%29%7D_%7Bbj%7D
     :align: center
-    :alt: e = \frac{1}{4} \sum_{i = 1}^{o} \sum_{j = 1}^{o} \sum_{a = 1}^{v} \sum_{b = 1}^{v} u_{ijab} \, t^{(2)}_{abij} + \frac{1}{2} \sum_{i = 1}^{o} \sum_{j = 1}^{o} \sum_{a = 1}^{v} \sum_{b = 1}^{v} u_{ijab} \, t^{(1)}_{ai} \, t^{(1)}_{bj}
-    :width: 419
-    :height: 49
+    :alt: e=\frac{1}{4}\sum_{i=1}^{o}\sum_{j=1}^{o}\sum_{a=1}^{v}\sum_{b=1}^{v}u_{ijab}\,t^{(2)}_{abij}+\frac{1}{2}\sum_{i=1}^{o}\sum_{j=1}^{o}\sum_{a=1}^{v}\sum_{b=1}^{v}u_{ijab}\,t^{(1)}_{ai}\,t^{(1)}_{bj}
 
 can be automatically rewritten into
 
-.. image:: http://www.sciweavers.org/tex2img.php?eq=e%20%3D%0A%20%20%20%20%20%20%5Cfrac%7B1%7D%7B4%7D%20%5Csum_%7Bi%20%3D%201%7D%5E%7Bo%7D%20%5Csum_%7Bj%20%3D%201%7D%5E%7Bo%7D%0A%20%20%20%20%20%20%5Csum_%7Ba%20%3D%201%7D%5E%7Bv%7D%20%5Csum_%7Bb%20%3D%201%7D%5E%7Bv%7D%20u_%7Bijab%7D%0A%20%20%20%20%20%20%5Cleft%28%20t%5E%7B%282%29%7D_%7Babij%7D%20%2B%202%20t%5E%7B%281%29%7D_%7Bai%7D%20t%5E%7B%281%29%7D_%7Bbj%7D%20%5Cright%29&bc=Transparent&fc=Black&im=png&fs=12&ff=mathpazo&edit=0
+.. image:: https://latex.codecogs.com/svg.latex?e%3D%5Cfrac%7B1%7D%7B4%7D%5Csum_%7Bi%3D1%7D%5E%7Bo%7D%5Csum_%7Bj%3D1%7D%5E%7Bo%7D%5Csum_%7Ba%3D1%7D%5E%7Bv%7D%5Csum_%7Bb%3D1%7D%5E%7Bv%7Du_%7Bijab%7D%5Cleft%28t%5E%7B%282%29%7D_%7Babij%7D%2B2t%5E%7B%281%29%7D_%7Bai%7Dt%5E%7B%281%29%7D_%7Bbj%7D%5Cright%29
     :align: center
-    :alt: e = \frac{1}{4} \sum_{i = 1}^{o} \sum_{j = 1}^{o} \sum_{a = 1}^{v} \sum_{b = 1}^{v} u_{ijab} \left( t^{(2)}_{abij} + 2 t^{(1)}_{ai} t^{(1)}_{bj} \right)
-    :width: 301
-    :height: 49
+    :alt: e=\frac{1}{4}\sum_{i=1}^{o}\sum_{j=1}^{o}\sum_{a=1}^{v}\sum_{b=1}^{v}u_{ijab}\left(t^{(2)}_{abij}+2t^{(1)}_{ai}t^{(1)}_{bj}\right)
 
 which takes less arithmetic cost.
 
