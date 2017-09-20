@@ -9,6 +9,7 @@ addons:
     packages:
     - gcc-7
     - g++-7
+    - gfortran
 
 before_install:
     - pip3 install -U pip setuptools
