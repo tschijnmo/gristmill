@@ -11,6 +11,7 @@ addons:
     - g++-7
 
 before_install:
+    - pip3 install -U pip setuptools
     - git clone https://github.com/tschijnmo/DummyRDD.git
     - cd DummyRDD; python3 setup.py install; cd ..
     - export CC=gcc-7
