@@ -16,7 +16,7 @@ before_install:
     - cd DummyRDD; python3 setup.py install; cd ..
     - export CC=gcc-7
     - export CXX=g++-7
-    - git clone https://github.com/tschijnmo/drudge.git
+    - git clone --recursive https://github.com/tschijnmo/drudge.git
     - cd drudge; python3 setup.py install; cd ..
 
 install:
