@@ -1,0 +1,28 @@
+language: python
+python:
+    - 3.6
+
+addons:
+  apt:
+    sources:
+    - ubuntu-toolchain-r-test
+    packages:
+    - gcc-7
+    - g++-7
+
+before_install:
+    - git clone https://github.com/tschijnmo/DummyRDD.git
+    - cd DummyRDD; python3 setup.py install; cd ..
+    - export CC=gcc-7
+    - export CXX=g++-7
+    - git clone https://github.com/tschijnmo/drudge.git
+    - cd drudge; python3 setup.py install; cd ..
+
+install:
+    - python3 setup.py install
+
+script:
+    - export DUMMY_SPARK=1
+    - cd tests
+    - pytest -sv
+
