@@ -1130,8 +1130,7 @@ class _ConstrGraph:
     def verts(self):
         """The nodes in the graph as integers with the information."""
         return (
-            (i, j['info'])
-            for i, j in self.graph.nodes_iter(data=True)
+            (i, j) for i, j in self.graph.nodes(data='info')
         )
 
     def add_edge(
@@ -1240,12 +1239,12 @@ class _ConstrGraph:
 
         if self.terms & terms != 0:
             edges2remove = [
-                (n1, n2) for n1, n2, info in graph.edges_iter(data='info')
+                (n1, n2) for n1, n2, info in graph.edges(data='info')
                 if 1 << info.term & terms != 0
             ]
             graph.remove_edges_from(edges2remove)
             nodes2remove = [
-                i for i in graph.nodes_iter() if graph.degree(i) == 0
+                i for i in graph.nodes() if graph.degree(i) == 0
             ]
             graph.remove_nodes_from(nodes2remove)
 
@@ -2554,7 +2553,7 @@ class _Optimizer:
     ) -> Expr:
         """Form the factored term for the given constriction."""
 
-        verts = biclique.constr_graph.graph.node
+        verts = biclique.constr_graph.graph.nodes
 
         # Form and optimize the two new summation nodes.
         factors = [biclique.leading_coeff]

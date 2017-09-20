@@ -26,5 +26,5 @@ setup(
     classifiers=CLASSIFIERS,
     packages=find_packages(),
     package_data={'gristmill': ['templates/*']},
-    install_requires=['drudge', 'Jinja2', 'sympy', 'numpy', 'networkx']
+    install_requires=['drudge', 'Jinja2', 'sympy', 'numpy', 'networkx>=2.0']
 )
