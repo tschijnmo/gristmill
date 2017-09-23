@@ -12,7 +12,8 @@ addons:
     - gfortran
 
 before_install:
-    - pip3 install -U pip setuptools coveralls
+    - pip3 install -U pip setuptools
+    - pip3 install coveralls
     - git clone https://github.com/tschijnmo/DummyRDD.git
     - cd DummyRDD; python3 setup.py install; cd ..
     - export CC=gcc-7
