@@ -460,6 +460,21 @@ class ImperativeCodePrinter(BasePrinter):
         return self.render('imperative', ctx)
 
 
+#
+# C printer.
+#
+
+
+def print_c_indexed(base, indices):
+    """Print indexed objects according to the C syntax.
+
+    The indexed will be printed as multi-dimensional array.
+    """
+    return ''.join([base] + [
+        '[{}]'.format(i.index) for i in indices
+    ])
+
+
 class CPrinter(ImperativeCodePrinter):
     """C code printer.
 
@@ -467,7 +482,7 @@ class CPrinter(ImperativeCodePrinter):
     relative to the base :py:class:`ImperativeCodePrinter`.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, print_indexed_cb=print_c_indexed, **kwargs):
         """Initialize a C code printer.
 
         The printer class, the name of the template, the line continuation
@@ -476,9 +491,7 @@ class CPrinter(ImperativeCodePrinter):
 
         super().__init__(
             CCodePrinter(),
-            lambda base, indices: ''.join([base] + [
-                '[{}]'.format(i.index) for i in indices
-            ]),
+            print_indexed_cb=print_indexed_cb,
             line_cont='\\', stmt_end=';',
             add_filters={
                 'form_loop_beg': _form_c_loop_beg,
@@ -507,6 +520,23 @@ def _form_c_loop_end(_):
     return '}'
 
 
+#
+# Fortran printer.
+#
+
+
+def print_fortran_indexed(base, indices):
+    """Print indexed objects according to the Fortran syntax.
+
+    By default, the multi-dimensional array format will be used.
+    """
+    return base + (
+        '' if len(indices) == 0 else '({})'.format(', '.join(
+            i.index for i in indices
+        ))
+    )
+
+
 class FortranPrinter(ImperativeCodePrinter):
     """Fortran code printer.
 
@@ -514,7 +544,8 @@ class FortranPrinter(ImperativeCodePrinter):
     language is fixed relative to the base :py:class:`ImperativeCodePrinter`.
     """
 
-    def __init__(self, openmp=True, **kwargs):
+    def __init__(self, openmp=True, print_indexed_cb=print_fortran_indexed,
+                 **kwargs):
         """Initialize a Fortran code printer.
 
         The printer class, the name of the template, and the line continuation
@@ -535,11 +566,7 @@ class FortranPrinter(ImperativeCodePrinter):
 
         super().__init__(
             FCodePrinter(settings={'source_format': 'free'}),
-            lambda base, indices: base + (
-                '' if len(indices) == 0 else '({})'.format(', '.join(
-                    i.index for i in indices
-                ))
-            ),
+            print_indexed_cb=print_indexed_cb,
             line_cont='&',
             add_filters={
                 'form_loop_beg': self._form_fortran_loop_beg,
