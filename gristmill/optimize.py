@@ -2788,7 +2788,10 @@ class _Optimizer:
         for i, v in enumerate(sum_infos):
             if not (broken & 1 << i):
                 dsf.union(v)
-            continue
+            if dsf.n_sets < 2:
+                break
+            else:
+                continue
 
         if dsf.n_sets < 2:
             return
