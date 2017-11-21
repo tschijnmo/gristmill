@@ -499,35 +499,40 @@ def _get_prod_final_cost(exts_total_size, sums_total_size) -> Size:
         return 2 * exts_total_size * sums_total_size
 
 
-def _gen_broken_sums(sums):
+def _gen_broken_sums(sum_chunks):
     """Generate broken summations in increasing size of broken summations.
 
     The size and the actual subset of broken summations are generated.
     """
 
-    sizes = [i.size for _, i in sums]  # Sizes are assumed to be sorted.
-    n_sums = len(sizes)
+    n_chunks = len(sum_chunks)
 
-    init = Tuple4Cmp((1, 0))  # Nothing is broken.
+    # The entries in the heap queue are triples: the total size, the subset of
+    # summation chunks, and the actual subset of summations.
+    init = Tuple4Cmp((1, 0, 0))  # Nothing is broken.
     queue = [init]
     while len(queue) > 0:
-        curr = heapq.heappop(queue)
-        yield curr
-        curr_size, curr_broken = curr
-        next_idx = curr_broken.bit_length()
-        if next_idx < n_sums:
-            joined_size = curr_size * sizes[next_idx]
-            joined_set = curr_broken | 1 << next_idx
+        curr_size, curr_chunks, curr_broken = heapq.heappop(queue)
+        yield curr_size, curr_broken
+        next_idx = curr_chunks.bit_length()
+        if next_idx < n_chunks:
+            new_size, new_broken = sum_chunks[next_idx]
+            joined_size = curr_size * new_size
+            joined_chunks = curr_chunks | 1 << next_idx
+            joined_broken = curr_broken | new_broken
             heapq.heappush(queue, Tuple4Cmp((
-                joined_size, joined_set
+                joined_size, joined_chunks, joined_broken
             )))
             if next_idx > 0:
                 top_idx = next_idx - 1
-                new_size, rem = divmod(joined_size, sizes[top_idx])
+                top_size, top_broken = sum_chunks[top_idx]
+                new_size, rem = divmod(joined_size, top_size)
                 assert rem == 0
-                assert joined_set & 1 << top_idx
+                assert joined_chunks & 1 << top_idx > 0
+                assert joined_broken & top_broken == top_broken
                 heapq.heappush(queue, Tuple4Cmp((
-                    new_size, joined_set ^ 1 << top_idx
+                    new_size, joined_chunks ^ 1 << top_idx,
+                    joined_broken ^ top_broken
                 )))
         continue
 
@@ -2720,11 +2725,31 @@ class _Optimizer:
                 else:
                     pass
 
+        # Organize the summations: summations with exactly the same factor
+        # involvement will be treated as a single chunk of summations.
+        invol_sums = collections.defaultdict(list)
+        for i, v in enumerate(sum_infos):
+            invol_sums[tuple(v)].append(i)
+            continue
+
+        # Size and summation subsets.
+        sum_chunks = []
+        for v in invol_sums.values():
+            sums_in_chunk = 0
+            total_size = 1
+            for i in v:
+                sums_in_chunk |= 1 << i
+                total_size *= sums[i][1].size
+                continue
+            sum_chunks.append((total_size, sums_in_chunk))
+            continue
+        sum_chunks.sort()
+
         #
         # Actual two-level generation.
         #
 
-        for broken_size, broken in _gen_broken_sums(sums):
+        for broken_size, broken in _gen_broken_sums(sum_chunks):
             broken_sums = [
                 v for i, v in enumerate(sums) if broken & (1 << i)
             ]  # Sums to be retained in the evaluation.
