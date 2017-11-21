@@ -83,7 +83,9 @@ def test_matrix_chain(three_ranges):
 
     # Perform the factorization.
     targets = [target]
-    eval_seq = optimize(targets, substs=dr.substs)
+    stats = {}
+    eval_seq = optimize(targets, substs=dr.substs, stats=stats)
+    assert stats['Number of nodes'] < 2 ** 3
     assert len(eval_seq) == 2
 
     # Check the correctness.

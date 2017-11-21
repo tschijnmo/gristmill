@@ -114,7 +114,7 @@ def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
              interm_fmt='tau^{}', contr_strat=ContrStrat.TRAV, opt_sum=True,
              repeated_terms_strat=RepeatedTermsStrat.NATURAL,
              opt_symm=True, req_an_opt=False, greedy_cutoff=-1, drop_cutoff=-1,
-             remove_shallow=True) -> typing.List[TensorDef]:
+             remove_shallow=True, stats=None) -> typing.List[TensorDef]:
     """Optimize the evaluation of the given tensor computations.
 
     This function will transform the given computations, given as tensor
@@ -196,6 +196,10 @@ def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
         to justify their memory usage.  So by default, they just dropped, with
         their content inlined into places where they are referenced.
 
+    stats
+        For developers, when a mapping is given, some execution statistics will
+        be dumped into it for analytics.
+
     """
 
     # This interface function is primarily just for sanity checking and
@@ -219,7 +223,7 @@ def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
         repeated_terms_strat=repeated_terms_strat,
         opt_symm=opt_symm, req_an_opt=req_an_opt,
         greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff,
-        remove_shallow=remove_shallow
+        remove_shallow=remove_shallow, stats=stats
     )
 
     return opt.optimize()
@@ -1371,7 +1375,7 @@ class _Optimizer:
     def __init__(
             self, computs, substs, interm_fmt,
             contr_strat, opt_sum, repeated_terms_strat, opt_symm, req_an_opt,
-            greedy_cutoff, drop_cutoff, remove_shallow
+            greedy_cutoff, drop_cutoff, remove_shallow, stats
     ):
         """Initialize the optimizer."""
 
@@ -1411,6 +1415,8 @@ class _Optimizer:
         self.drop_cutoff = drop_cutoff
         self.remove_shallow = remove_shallow
 
+        self.stats = stats
+
         # Other internal data preparation.
         self._next_internal_idx = 0
 
@@ -1434,6 +1440,10 @@ class _Optimizer:
             continue
 
         self._res = self._linearize(res_nodes)
+
+        if self.stats is not None:
+            self.stats['Number of nodes'] = len(self._interms_canon)
+
         return self._res
 
     #
