@@ -506,7 +506,8 @@ def _get_prod_final_cost(exts_total_size, sums_total_size) -> Size:
 def _gen_broken_sums(sum_chunks):
     """Generate broken summations in increasing size of broken summations.
 
-    The size and the actual subset of broken summations are generated.
+    The size, the subset of broken summation chunks, and the actual subset of
+    broken summations are generated.
     """
 
     n_chunks = len(sum_chunks)
@@ -516,27 +517,29 @@ def _gen_broken_sums(sum_chunks):
     init = Tuple4Cmp((1, 0, 0))  # Nothing is broken.
     queue = [init]
     while len(queue) > 0:
-        curr_size, curr_chunks, curr_broken = heapq.heappop(queue)
-        yield curr_size, curr_broken
+        curr = heapq.heappop(queue)
+        yield curr
+        curr_size, curr_chunks, curr_sums = curr
+
         next_idx = curr_chunks.bit_length()
         if next_idx < n_chunks:
-            new_size, new_broken = sum_chunks[next_idx]
+            new_size, new_sums, _ = sum_chunks[next_idx]
             joined_size = curr_size * new_size
             joined_chunks = curr_chunks | 1 << next_idx
-            joined_broken = curr_broken | new_broken
+            joined_sums = curr_sums | new_sums
             heapq.heappush(queue, Tuple4Cmp((
-                joined_size, joined_chunks, joined_broken
+                joined_size, joined_chunks, joined_sums
             )))
             if next_idx > 0:
                 top_idx = next_idx - 1
-                top_size, top_broken = sum_chunks[top_idx]
+                top_size, top_sums, _ = sum_chunks[top_idx]
                 new_size, rem = divmod(joined_size, top_size)
                 assert rem == 0
-                assert joined_chunks & 1 << top_idx > 0
-                assert joined_broken & top_broken == top_broken
+                assert joined_chunks & 1 << top_idx
+                assert joined_sums & top_sums == top_sums
                 heapq.heappush(queue, Tuple4Cmp((
                     new_size, joined_chunks ^ 1 << top_idx,
-                    joined_broken ^ top_broken
+                    joined_sums ^ top_sums
                 )))
         continue
 
@@ -2742,16 +2745,17 @@ class _Optimizer:
             invol_sums[tuple(v)].append(i)
             continue
 
-        # Size and summation subsets.
+        # For each chunk, we have its size, the actual set of sums, and the
+        # factors involving the summations in the chunk.
         sum_chunks = []
-        for v in invol_sums.values():
+        for k, v in invol_sums.items():
             sums_in_chunk = 0
             total_size = 1
             for i in v:
                 sums_in_chunk |= 1 << i
                 total_size *= sums[i][1].size
                 continue
-            sum_chunks.append((total_size, sums_in_chunk))
+            sum_chunks.append(Tuple4Cmp((total_size, sums_in_chunk, k)))
             continue
         sum_chunks.sort()
 
@@ -2759,20 +2763,24 @@ class _Optimizer:
         # Actual two-level generation.
         #
 
-        for broken_size, broken in _gen_broken_sums(sum_chunks):
-            broken_sums = [
-                v for i, v in enumerate(sums) if broken & (1 << i)
-            ]  # Sums to be retained in the evaluation.
+        for broken_size, broken_chunks, broken_sums in _gen_broken_sums(
+                sum_chunks
+        ):
+            kept_factors = [
+                v[2] for i, v in enumerate(sum_chunks)
+                if not (broken_chunks & 1 << i)
+            ]  # Factors to be kept together in the evaluation.
+
             final_cost = _get_prod_final_cost(
                 exts_total_size, broken_size
             )
             yield final_cost, broken_sums, self._gen_biparts_w_kept_sums(
-                prod_node, broken, sum_infos, factor_infos
+                prod_node, kept_factors, broken_sums, factor_infos
             )
             continue
 
     def _gen_biparts_w_kept_sums(
-            self, prod_node: _Prod, broken, sum_infos, factor_infos
+            self, prod_node: _Prod, kept_factors, broken_sums, factor_infos
     ):
         """Generate all bipartitions with given summations kept.
 
@@ -2785,9 +2793,8 @@ class _Optimizer:
 
         dsf = DSF(n_factors)
 
-        for i, v in enumerate(sum_infos):
-            if not (broken & 1 << i):
-                dsf.union(v)
+        for i in kept_factors:
+            dsf.union(i)
             if dsf.n_sets < 2:
                 break
             else:
@@ -2834,7 +2841,7 @@ class _Optimizer:
                     sums2 |= sums[i]
                 continue
 
-            if all(i & broken == broken for i in (sums1, sums2)):
+            if all(i & broken_sums == broken_sums for i in (sums1, sums2)):
 
                 # Only now we get the factors and the externals.
                 factors1, factors2 = 0, 0
@@ -2849,7 +2856,8 @@ class _Optimizer:
                     continue
 
                 yield tuple(
-                    self._form_part_interm(prod_node, broken, *i) for i in [
+                    self._form_part_interm(prod_node, broken_sums, *i)
+                    for i in [
                         (exts1, sums1, factors1), (exts2, sums2, factors2)
                     ]
                 )
@@ -2881,7 +2889,7 @@ class _Optimizer:
         return self._form_prod_interm(exts_list, sums_list, factors_list)
 
     def _form_prod_eval(
-            self, prod_node: _Prod, broken_sums,
+            self, prod_node: _Prod, broken_sums: int,
             parts: typing.Tuple[_Interm, ...]
     ):
         """Form an evaluation for a product node."""
@@ -2900,8 +2908,9 @@ class _Optimizer:
         if factors[0] == factors[1]:
             factors = [factors[0] ** 2]
         return _Prod(
-            prod_node.base, prod_node.exts, broken_sums,
-            coeff * prod_node.coeff, factors
+            prod_node.base, prod_node.exts, [
+                v for i, v in enumerate(prod_node.sums) if broken_sums & 1 << i
+            ], coeff * prod_node.coeff, factors
         )
 
 
