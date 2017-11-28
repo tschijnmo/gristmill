@@ -1,0 +1,3 @@
+[submodule "deps/cpypp"]
+	path = deps/cpypp
+	url = https://github.com/tschijnmo/cpypp.git
