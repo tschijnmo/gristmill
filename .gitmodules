@@ -1,3 +1,9 @@
 [submodule "deps/cpypp"]
 	path = deps/cpypp
 	url = https://github.com/tschijnmo/cpypp.git
+[submodule "deps/libparenth"]
+	path = deps/libparenth
+	url = https://github.com/tschijnmo/libparenth.git
+[submodule "deps/fbitset"]
+	path = deps/fbitset
+	url = https://github.com/tschijnmo/fbitset.git
