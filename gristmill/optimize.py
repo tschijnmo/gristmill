@@ -1062,7 +1062,7 @@ class _BronKerbosch:
             if new_leading_coeff is not None:
                 assert curr_leading_coeff is not None
                 updated_d.coeff = (
-                    curr_leading_coeff / new_leading_coeff
+                        curr_leading_coeff / new_leading_coeff
                 ).simplify()
                 updated_d.leading_coeff = None
         else:
@@ -1075,8 +1075,8 @@ class _BronKerbosch:
 
             edge_term = 1 << edge.term
             if_conflict = (
-                edge_term & new_terms != 0 or edge_term & curr_terms != 0 or
-                edge_term & self._terms != 0
+                    edge_term & new_terms != 0 or edge_term & curr_terms != 0 or
+                    edge_term & self._terms != 0
             )
             if if_conflict:
                 return None
@@ -1089,7 +1089,7 @@ class _BronKerbosch:
             if new_leading_coeff is not None:
                 # The previous node gives the first edge.
                 updated_d.coeff = (
-                    edge_coeff / new_leading_coeff
+                        edge_coeff / new_leading_coeff
                 ).simplify()
             elif self._leading_coeff is None:
                 # This node gives the first edge.
@@ -1757,7 +1757,7 @@ class _Optimizer:
             eval_ = node.evals[0]
 
             if_inline = isinstance(eval_, _Sum) and (
-                node.n_refs == 1 or len(eval_.sum_terms) == 1
+                    node.n_refs == 1 or len(eval_.sum_terms) == 1
             )
             if if_inline:
                 if len(node.exts) == 0:
@@ -1784,7 +1784,7 @@ class _Optimizer:
         """Test if a product node is just a trivial reference to an input."""
         if isinstance(node, _Prod):
             return len(node.sums) == 0 and len(node.factors) == 1 and (
-                self._parse_interm_ref(node.factors[0]) is None
+                    self._parse_interm_ref(node.factors[0]) is None
             )
         else:
             return False
@@ -1832,8 +1832,8 @@ class _Optimizer:
             if comput.base in self._interms:
 
                 if_shallow = (
-                    remove_shallow and len(terms) == 1
-                    and len(terms[0].sums) == 0
+                        remove_shallow and len(terms) == 1
+                        and len(terms[0].sums) == 0
                 )
                 if if_shallow:
                     # Remove shallow intermediates.  The saving might be too
