@@ -9,15 +9,17 @@ import operator
 import typing
 import warnings
 
-from drudge import TensorDef, prod_, Term, Range, sum_
 from networkx import Graph
 from sympy import (
     Integer, Symbol, Expr, IndexedBase, Mul, Indexed, primitive, Wild,
     default_sort_key, Pow
 )
 
+from drudge import TensorDef, prod_, Term, Range, sum_
+
+from ._parenth import parenth
 from .utils import (
-    Size, get_total_size, DSF, Tuple4Cmp, form_sized_range
+    Size, get_total_size, Tuple4Cmp, form_sized_range
 )
 
 
@@ -289,9 +291,15 @@ _ZERO = Integer(0)
 _UNITY = Integer(1)
 _NEG_UNITY = Integer(-1)
 
+# Colours for canonicalization.
 _EXT = 0
 _SUMMED_EXT = 1
 _SUMMED = 2
+
+# Dimension labels for parenthesization.  They are ordered in a different way
+# from the canonicalization for interfacing with libparenth.
+_SUM_DIM = 0
+_EXT_DIM = 1
 
 _SUBSTED_EVAL_BASE = Symbol('gristmillSubstitutedEvalBase')
 
@@ -2619,299 +2627,225 @@ class _Optimizer:
         # This function should not be called on an already-optimized node.
         assert len(prod_node.evals) == 0
 
-        n_factors = len(prod_node.factors)
-
-        if n_factors < 2:
-            assert n_factors == 1
-            prod_node.evals.append(prod_node)
-            sums_size = get_total_size(prod_node.sums)
-            prod_node.total_cost = (
-                get_total_size(prod_node.exts) * sums_size
-            ) if sums_size != 1 else 0
-            return
-
-        contr_strat = self.contr_strat
-        greedy_mode = contr_strat == ContrStrat.GREEDY
-        normal_mode = (
-            contr_strat == ContrStrat.OPT or contr_strat == ContrStrat.TRAV
-        )
-        exhaust_mode = contr_strat == ContrStrat.EXHAUST
-        if_inclusive = (
-            contr_strat == ContrStrat.TRAV or
-            contr_strat == ContrStrat.EXHAUST
-        )
-
-        evals = prod_node.evals
-        optimal_cost = None
-        for final_cost, broken_sums, biparts_gen in self._gen_factor_biparts(
-                prod_node
-        ):
-            def need_break() -> bool:
-                """If we need to break the current loop."""
-                if optimal_cost is None:
-                    return False
-
-                if greedy_mode:
-                    return True
-                elif normal_mode:
-                    return final_cost > optimal_cost
-                elif exhaust_mode:
-                    return False
-                else:
-                    assert False
-
-            if need_break():
-                break
-            # Else
-
-            for bipart in biparts_gen:
-
-                if need_break():
-                    break
-
-                # Recurse, two parts.
-                assert len(bipart) == 2
-                for i in bipart:
-                    self._optimize(i.node)
-                    continue
-
-                total_cost = (
-                    final_cost
-                    + bipart[0].node.total_cost
-                    + bipart[1].node.total_cost
-                )
-
-                if_new_optimal = (
-                    optimal_cost is None or optimal_cost > total_cost
-                )
-                if if_new_optimal:
-                    optimal_cost = total_cost
-                    if not if_inclusive:
-                        evals.clear()
-
-                if if_new_optimal or if_inclusive:
-                    new_eval = self._form_prod_eval(
-                        prod_node, broken_sums, bipart
-                    )
-                    new_eval.total_cost = total_cost
-                    evals.append(new_eval)
-
-                continue
-
-        assert len(evals) > 0
-        prod_node.total_cost = optimal_cost
-        return
-
-    def _gen_factor_biparts(self, prod_node: _Prod):
-        """Generate all the bipartitions of factors in a product node."""
-
-        #
-        # Compute things invariant to different summations for performance.
-        #
-
+        # The basic infos about the product node.  Similar concepts in small
+        # subproblems should be given shorter names like fs.
         exts = prod_node.exts
-        exts_total_size = get_total_size(exts)
-        factors = prod_node.factors
         sums = prod_node.sums
+        factors = prod_node.factors
 
-        ext2idx, sum2idx = tuple(
-            {v[0]: j for j, v in enumerate(i)}
-            for i in (prod_node.exts, sums)
-        )
+        # Aggregation of summations and externals consistent with the label.
+        dims = (sums, exts)
 
-        # Factors involving each of the summations, as iterable lists.
-        sum_infos: typing.List[typing.List[int]] = [
-            [] for _ in range(len(sum2idx))
-        ]
+        # Dummy symbol to dimension label: category + index.
+        dumm2dim = {}
+        for cat in [_SUM_DIM, _EXT_DIM]:
+            for i, v in enumerate(dims[cat]):
+                # The dummy symbols cannot clash in name.
+                assert v[0] not in dumm2dim
+                dumm2dim[v[0]] = (cat, i)
+                continue
+            continue
 
-        # Ext and sum involvements of factors.
-        factor_infos = [[0, 0] for _ in factors]
-
+        # The factors with each dimension.
+        factors_with = collections.defaultdict(list)
         for i, v in enumerate(factors):
             for j in v.atoms(Symbol):
-                if j in sum2idx:
-                    sum_idx = sum2idx[j]
-                    sum_infos[sum_idx].append(i)
-                    factor_infos[i][1] |= 1 << sum_idx
-                elif j in ext2idx:
-                    factor_infos[i][0] |= 1 << ext2idx[j]
-                else:
-                    pass
-
-        # Organize the summations: summations with exactly the same factor
-        # involvement will be treated as a single chunk of summations.
-        invol_sums = collections.defaultdict(list)
-        for i, v in enumerate(sum_infos):
-            invol_sums[tuple(v)].append(i)
+                if j in dumm2dim:
+                    factors_with[dumm2dim[j]].append(i)
+                continue
             continue
 
-        # For each chunk, we have its size, the actual set of sums, and the
-        # factors involving the summations in the chunk.
-        sum_chunks = []
-        for k, v in invol_sums.items():
-            sums_in_chunk = 0
+        # Organize the dimensions: dimensions of the same category with
+        # exactly the same factor involvement will be treated as a single
+        # chunk.
+        involv_dims = collections.defaultdict(list)
+        for k, v in factors_with.items():
+            # Category + involving factors.
+            involv_dims[(k[0], tuple(v))].append(k[1])
+            continue
+
+        # For each chunk, we have its category and size, the actual set of
+        # dimensions, and the factors involving any of the dimensions in the
+        # chunk.
+        dim_chunks = []
+        n_sums = 0
+        for k, dims_in_chunk in involv_dims.items():
+            cat, fs = k
+            if cat == _SUM_DIM:
+                n_sums += 1
             total_size = 1
-            for i in v:
-                sums_in_chunk |= 1 << i
-                total_size *= sums[i][1].size
+            for i in dims_in_chunk:
+                total_size *= dims[cat][i][1].size
                 continue
-            sum_chunks.append(Tuple4Cmp((total_size, sums_in_chunk, k)))
+            dim_chunks.append(Tuple4Cmp((
+                (cat, total_size), dims_in_chunk, fs)
+            ))
             continue
-        sum_chunks.sort()
+        dim_chunks.sort()
+        # Now the dimension chunks finally got their index for libparenth.
+
+        assert all(i[0][0] == _SUM_DIM for i in dim_chunks[:n_sums])
+        assert all(i[0][0] == _EXT_DIM for i in dim_chunks[n_sums:])
+
+        # Data needed for interfacing with libparenth.
+        dim_chunk_sizes = [i[0][1] for i in dim_chunks]
+        dim_chunks_on: typing.List[typing.List[int]] = [[] for _ in factors]
+        for i, v in enumerate(dim_chunks):
+            for j in v[2]:
+                dim_chunks_on[j].append(i)
+                continue
+            continue
+
+        contr_strat = self.contr_strat
+        if contr_strat == ContrStrat.GREEDY:
+            mode = 0
+        elif contr_strat == ContrStrat.OPT or contr_strat == ContrStrat.TRAV:
+            mode = 1
+        elif contr_strat == ContrStrat.EXHAUST:
+            mode = 2
+        else:
+            assert 0
+
+        if_inclusive = (
+                contr_strat == ContrStrat.TRAV or
+                contr_strat == ContrStrat.EXHAUST
+        )
 
         #
-        # Actual two-level generation.
+        # Invocation of core libparenth function wrapper.
         #
+        res = parenth(
+            dim_chunk_sizes, n_sums, dim_chunks_on, mode, if_inclusive
+        )
 
-        for broken_size, broken_chunks, broken_sums in _gen_broken_sums(
-                sum_chunks
-        ):
-            kept_factors = [
-                v[2] for i, v in enumerate(sum_chunks)
-                if not (broken_chunks & 1 << i)
-            ]  # Factors to be kept together in the evaluation.
+        #
+        # Translate the result back.
+        #
+        # Here a small memoir is used to cache the result.
+        get_orig_dims = functools.partial(self._get_orig_dims, dims, dim_chunks)
+        interms: typing.Dict[typing.Tuple[int, ...], _Interm] = {}
 
-            final_cost = _get_prod_final_cost(
-                exts_total_size, broken_size
+        def form_interm(factor_idxes) -> _Interm:
+            """Form the intermediate for parenthesizing the given factors.
+            """
+
+            if factor_idxes in interms:
+                return interms[factor_idxes]
+
+            interm_factors = [factors[idx] for idx in factor_idxes]
+
+            res_entry = res[factor_idxes]
+
+            interm_sums = get_orig_dims(res_entry.sums)
+            interm_exts = get_orig_dims(res_entry.exts)
+
+            interm = self._form_prod_interm(
+                interm_exts, interm_sums, interm_factors
             )
-            yield final_cost, broken_sums, self._gen_biparts_w_kept_sums(
-                prod_node, kept_factors, broken_sums, factor_infos
-            )
-            continue
+            interms[factor_idxes] = interm
+            return interm
 
-    def _gen_biparts_w_kept_sums(
-            self, prod_node: _Prod, kept_factors, broken_sums, factor_infos
-    ):
-        """Generate all bipartitions with given summations kept.
-
-        First the factors are divided into chunks indivisible according to
-        the kept summations.  Then their bipartitions which really break the
-        broken sums are generated.
-        """
-
-        n_factors = len(factor_infos)
-
-        dsf = DSF(n_factors)
-
-        for i in kept_factors:
-            dsf.union(i)
-            if dsf.n_sets < 2:
-                break
-            else:
+        for k, v in res.items():
+            assert len(k) > 0
+            target: _Interm = form_interm(k)
+            target_node = target.node
+            assert isinstance(target_node, _Prod)
+            evals = target_node.evals
+            if len(evals) > 0:
                 continue
 
-        if dsf.n_sets < 2:
-            return
-
-        # The sums, externals, and factors involved by each chunks.
-        sums = []
-        factors = []
-        exts = []
-        # Map root factors to the indices of the chunk in the above lists.
-        indices = {}
-        index = 0
-
-        for i in dsf:
-            root = dsf.find(i)
-            if root not in indices:
-                indices[root] = index
-                index += 1
-                factors.append(0)
-                sums.append(0)
-                exts.append(0)
-
-            chunk = indices[root]
-            factors[chunk] |= 1 << i
-            exts[chunk] |= factor_infos[i][0]
-            sums[chunk] |= factor_infos[i][1]
-
-            continue
-
-        # Loop over bipartitions of the indivisible chunks.
-
-        n_chunks = index
-        for p1 in range(1, 2 ** n_chunks - 1, 2):
-
-            # Get the sums in the two chunks first.
-            sums1, sums2 = 0, 0
-            for i in range(n_chunks):
-                if p1 & 1 << i:
-                    sums1 |= sums[i]
-                else:
-                    sums2 |= sums[i]
+            if len(k) == 1:
+                # Leaves.
+                evals.append(target_node)
                 continue
 
-            if all(i & broken_sums == broken_sums for i in (sums1, sums2)):
+            # The results from libparenth gives the evaluation of the
+            # intermediate in terms of the objects in the current problem.
+            # However, to store the evaluation in the actual canonicalized
+            # evaluation node, we need to translate the evaluation to be written
+            # in terms of the canonical form of the subproblem.
+            #
+            # Specifically, the subproblem from libparenth is actually equal to
+            #
+            # target_ref.coeff * target_node[target_ref.indices]
+            #
+            target_ref = self._parse_interm_ref(target.ref)
+            assert target_ref.power == 1
 
-                # Only now we get the factors and the externals.
-                factors1, factors2 = 0, 0
-                exts1, exts2 = 0, 0
-                for i in range(n_chunks):
-                    if p1 & 1 << i:
-                        factors1 |= factors[i]
-                        exts1 |= exts[i]
-                    else:
-                        factors2 |= factors[i]
-                        exts2 |= exts[i]
+            # Translation from the current dummy symbol to the canonical symbol.
+            to_canon = {
+                i: j[0]
+                for i, j in zip(target_ref.indices, target_node.exts)
+            }
+            # Here the sum indices in the evaluation is going to be renamed
+            # according the to sum indices in the target node, since they are
+            # guaranteed not to clash with the canonical externals.
+            canon_sum_dumms = collections.defaultdict(list)
+            for i, j in target_node.sums:
+                canon_sum_dumms[j].append(i)
+                continue
+
+            for eval_ in v.evals:
+                left_op = form_interm(eval_.ops[0])
+                right_op = form_interm(eval_.ops[1])
+
+                coeff = _UNITY
+                fs = []  # Factors
+                for i in [left_op, right_op]:
+                    curr_ref = self._parse_interm_ref(i.ref)
+                    coeff *= curr_ref.coeff
+                    fs.append(curr_ref.ref)
                     continue
 
-                yield tuple(
-                    self._form_part_interm(prod_node, broken_sums, *i)
-                    for i in [
-                        (exts1, sums1, factors1), (exts2, sums2, factors2)
-                    ]
+                assert len(fs) == 2
+                if fs[0] == fs[1]:
+                    fs = [fs[0] ** 2]
+
+                eval_sums = get_orig_dims(eval_.sums)
+                # Current sums in the evaluation must be a subset of the
+                # summations in the target node.
+                sum_idx = collections.defaultdict(lambda: 0)
+                res_sums = []
+                for curr_dumm, range_ in eval_sums:
+                    new_dumm = canon_sum_dumms[range_][sum_idx[range_]]
+                    sum_idx[range_] += 1
+                    res_sums.append((
+                        new_dumm, range_
+                    ))
+                    to_canon[curr_dumm] = new_dumm
+
+                eval_node = _Prod(
+                    target_node.base, target_node.exts, res_sums,
+                    (coeff / target_ref.coeff).xreplace(to_canon),
+                    [i.xreplace(to_canon) for i in fs]
                 )
+                eval_node.total_cost = eval_.cost
+
+                if target_node.total_cost is None:
+                    assert len(evals) == 0
+                    target_node.total_cost = eval_.cost
+
+                evals.append(eval_node)
+                # Continue to the next evaluation.
+                continue
+
+            # Continue to the next intermediate.
+            continue
 
         return
 
-    def _form_part_interm(self, prod_node, broken, exts, sums, factors):
-        """Form an intermediate for a partition for the given factors."""
+    @staticmethod
+    def _get_orig_dims(dims, dim_chunks, chunk_idxes):
+        """Get the original dimensions from chunk indices.
 
-        factors_list = [
-            v for i, v in enumerate(prod_node.factors) if factors & 1 << i
+        This function basically flattens the dimension indices in the chunks and
+        directly returns the result as a list of dummy/range pairs.
+        """
+        return [
+            dims[dim_chunks[i][0][0]][j]
+            for i in chunk_idxes
+            for j in dim_chunks[i][1]
         ]
-        exts_list = [
-            v for i, v in enumerate(prod_node.exts) if exts & 1 << i
-        ]
-        sums_list = []
-
-        for i, v in enumerate(prod_node.sums):
-            mask = 1 << i
-            if not (sums & mask):
-                # Sums not involved.
-                continue
-            elif broken & mask:
-                exts_list.append(v)
-            else:
-                sums_list.append(v)
-            continue
-
-        return self._form_prod_interm(exts_list, sums_list, factors_list)
-
-    def _form_prod_eval(
-            self, prod_node: _Prod, broken_sums: int,
-            parts: typing.Tuple[_Interm, ...]
-    ):
-        """Form an evaluation for a product node."""
-
-        assert len(parts) == 2
-
-        coeff = _UNITY
-        factors = []
-        for i in parts:
-            curr_ref = self._parse_interm_ref(i.ref)
-            coeff *= curr_ref.coeff
-            factors.append(curr_ref.ref)
-            continue
-
-        assert len(factors) == 2
-        if factors[0] == factors[1]:
-            factors = [factors[0] ** 2]
-        return _Prod(
-            prod_node.base, prod_node.exts, [
-                v for i, v in enumerate(prod_node.sums) if broken_sums & 1 << i
-            ], coeff * prod_node.coeff, factors
-        )
 
 
 #
