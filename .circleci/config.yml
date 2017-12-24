@@ -9,6 +9,7 @@ jobs:
           cd drudge
           python3 setup.py build
           python3 setup.py install
+          rm -rf *
       - checkout
       - run: git submodule update --init --recursive
       - run:
