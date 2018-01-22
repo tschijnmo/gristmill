@@ -125,7 +125,7 @@ class BasePrinter:
             indices_dict.update(term.sums)
             term_ctx.sums = self._form_indices_ctx(term.sums)
 
-            factors, coeff = term.amp_factors
+            factors, coeff = term.get_amp_factors(monom_only=False)
 
             coeff = coeff.together()
             if isinstance(coeff, Mul):
