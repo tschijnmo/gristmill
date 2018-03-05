@@ -231,19 +231,6 @@ def test_ccsd_doubles_complex_terms(parthole_drudge):
             # Here we just assert that the final step is a simple product.
             assert len(eval_seq[-1].rhs_terms) == 1
 
-    for drop_cutoff in [-1, 2]:
-        tensor = dr.define_einst(IndexedBase('r')[a, b, i, j], a_term + b_term)
-        targets = [tensor]
-        eval_seq = optimize(
-            targets, substs={p.nv: p.no * 1.1},
-            contr_strat=ContrStrat.EXHAUST,
-            repeated_terms_strat=RepeatedTermsStrat.IGNORE,
-            drop_cutoff=drop_cutoff
-        )
-        assert verify_eval_seq(eval_seq, targets)
-        # Here we assert that the two products are separately factored.
-        assert len(eval_seq[-1].rhs_terms) == 2
-
 
 def test_ccsd_pij_term(parthole_drudge):
     """Test Pij term in the CCSD doubles equation.
