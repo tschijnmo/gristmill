@@ -99,7 +99,8 @@ def test_matrix_chain(three_ranges):
     assert leading_cost == expected_cost
 
 
-def test_shallow_matrix_factorization(three_ranges):
+@pytest.mark.parametrize('rand_constr', [True, False])
+def test_shallow_matrix_factorization(three_ranges, rand_constr):
     """Test a shallow matrix multiplication factorization problem.
 
     In this test, there are four matrices involved, X, Y, U, and V.  The final
@@ -143,7 +144,7 @@ def test_shallow_matrix_factorization(three_ranges):
     targets = [target]
 
     # The actual optimization.
-    res = optimize(targets)
+    res = optimize(targets, rand_constr=rand_constr)
     assert len(res) == 3
 
     # Test the correctness.
@@ -313,7 +314,7 @@ def test_general_matrix_problem(three_ranges):
     targets = [target]
     assert target.n_terms == 12
     assert get_flop_cost(targets).subs(dr.substs) == (
-        144 * m ** 4 + 16 * m ** 3 + 11 * m ** 2
+            144 * m ** 4 + 16 * m ** 3 + 11 * m ** 2
     )
 
     eval_seq = optimize(targets, substs=dr.substs)
