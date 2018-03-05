@@ -112,11 +112,13 @@ class RepeatedTermsStrat(enum.Enum):
     IGNORE = 2
 
 
-def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
-             interm_fmt='tau^{}', contr_strat=ContrStrat.TRAV, opt_sum=True,
-             repeated_terms_strat=RepeatedTermsStrat.NATURAL,
-             opt_symm=True, req_an_opt=False, greedy_cutoff=-1, drop_cutoff=-1,
-             remove_shallow=True, stats=None) -> typing.List[TensorDef]:
+def optimize(
+        computs: typing.Iterable[TensorDef], substs=None, simplify=True,
+        interm_fmt='tau^{}', contr_strat=ContrStrat.TRAV, opt_sum=True,
+        repeated_terms_strat=RepeatedTermsStrat.NATURAL, opt_symm=True,
+        req_an_opt=False, greedy_cutoff=-1, drop_cutoff=-1, rand_constr=False,
+        remove_shallow=True, stats=None
+) -> typing.List[TensorDef]:
     """Optimize the evaluation of the given tensor computations.
 
     This function will transform the given computations, given as tensor
@@ -192,6 +194,13 @@ def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
         degeneracy, while results could be less optimized.  For large inputs, a
         value of ``2`` is advised.
 
+    rand_constr
+        If a random constriction is to be performed rather than searching the
+        optimal one among the maximal constrictions.  This can be helpful for
+        very large problem with many factors.  This option implies a
+        ``drop_cutoff`` value of ``2`` and the requirement for an optimal
+        contraction.
+
     remove_shallow
         Shallow intermediates are outer-product intermediates that come with no
         summations.  Normally these intermediates cannot give saving big enough
@@ -219,13 +228,17 @@ def optimize(computs: typing.Iterable[TensorDef], substs=None, simplify=True,
     if not isinstance(contr_strat, ContrStrat):
         raise TypeError('Invalid contraction strategy', contr_strat)
 
+    if rand_constr:
+        drop_cutoff = 2
+        req_an_opt = True
+
     opt = _Optimizer(
         computs, substs=substs, interm_fmt=interm_fmt,
         contr_strat=contr_strat, opt_sum=opt_sum,
         repeated_terms_strat=repeated_terms_strat,
         opt_symm=opt_symm, req_an_opt=req_an_opt,
         greedy_cutoff=greedy_cutoff, drop_cutoff=drop_cutoff,
-        remove_shallow=remove_shallow, stats=stats
+        rand_constr=rand_constr, remove_shallow=remove_shallow, stats=stats
     )
 
     return opt.optimize()
@@ -850,6 +863,8 @@ class _BronKerbosch:
 
         assert len(subg) > 0
 
+        # For random constriction, if a biclique has ever been yielded.
+        self._yielded = False
         yield from self._expand(subg, set(subg.keys()))
 
         # If things all goes correctly, the stack should be reverted to initial
@@ -902,11 +917,15 @@ class _BronKerbosch:
             # if not subg_q:
             #    yield Q[:]
             #
+            self._yielded = True
             yield _Biclique(
                 parts=curr, leading_coeff=self._leading_coeff,
                 terms=self._terms, saving=curr_saving,
                 constr_graph=self._constr_graph
             )
+
+        if self._yielded and self._opt.rand_constr:
+            return
 
         # The quadratic loop.
         subgq = {}
@@ -975,6 +994,10 @@ class _BronKerbosch:
             pass
         else:
             to_loop -= excl
+
+        if self._opt.rand_constr:
+            to_loop = list(to_loop)
+            random.shuffle(to_loop)
 
         for q_v in to_loop:
             q_d = subg[q_v]
@@ -1386,7 +1409,7 @@ class _Optimizer:
     def __init__(
             self, computs, substs, interm_fmt,
             contr_strat, opt_sum, repeated_terms_strat, opt_symm, req_an_opt,
-            greedy_cutoff, drop_cutoff, remove_shallow, stats
+            greedy_cutoff, drop_cutoff, rand_constr, remove_shallow, stats
     ):
         """Initialize the optimizer."""
 
@@ -1424,6 +1447,7 @@ class _Optimizer:
         self.req_an_opt = req_an_opt
         self.greedy_cutoff = greedy_cutoff
         self.drop_cutoff = drop_cutoff
+        self.rand_constr = rand_constr
         self.remove_shallow = remove_shallow
 
         self.stats = stats
