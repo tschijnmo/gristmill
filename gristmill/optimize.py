@@ -6,16 +6,16 @@ import functools
 import heapq
 import itertools
 import operator
+import random
 import typing
 import warnings
 
+from drudge import TensorDef, prod_, Term, Range, sum_
 from networkx import Graph
 from sympy import (
     Integer, Symbol, Expr, IndexedBase, Mul, Indexed, primitive, Wild,
     default_sort_key, Pow
 )
-
-from drudge import TensorDef, prod_, Term, Range, sum_
 
 from ._parenth import parenth
 from .utils import (
@@ -961,7 +961,7 @@ class _BronKerbosch:
                     i for i in to_loop if subg[i].saving == greedy_saving
                 }
                 if cut_full:
-                    to_loop = {to_loop.pop()}
+                    to_loop = {random.sample(to_loop, 1).pop()}
                     pivots = []
 
         # Designated vertices that can be excluded for each pivot.
