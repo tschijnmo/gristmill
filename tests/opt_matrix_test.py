@@ -460,7 +460,8 @@ def test_eval_compression(three_ranges):
     y = IndexedBase('Y')
 
     s = IndexedBase('S')
-    t = IndexedBase('T')
+    t1 = IndexedBase('T1')
+    t2 = IndexedBase('T2')
 
     # The target.
     s_def = dr.define_einst(
@@ -468,10 +469,10 @@ def test_eval_compression(three_ranges):
         u[i, k] * x[k, j] + u[i, k] * y[k, j]
     )
     targets = [dr.define_einst(
-        t[i, j],
+        t1[i, j],
         s_def[i, a] * v[a, j]
     ), dr.define_einst(
-        t[i, j],
+        t2[i, j],
         s_def[i, a] * w[a, j]
     )]
 
