@@ -62,15 +62,15 @@ def colourful_tensor(simple_drudge):
 def eval_seq_deps(simple_drudge):
     """A simple evaluation sequence with some dependencies.
 
-    Here, the tensors are all matrices. we have inputs X, Y, Z.
+    Here, the tensors are all matrices. we have inputs X, Y.
 
     I1 = X Y
-    I2 = Y Z
+    I2 = Tr(I1)
 
-    R1 = I1 + I2
-    R2 = I1 * 5
+    R1 = I1 * I2
+    R2 = I1 * 2
 
-    So I1 should ran out of dependency after the evaluation of R1.
+    So I2 should ran out of dependency after the evaluation of R1.
 
     """
 
@@ -80,15 +80,14 @@ def eval_seq_deps(simple_drudge):
 
     x = IndexedBase('X')
     y = IndexedBase('Y')
-    z = IndexedBase('Z')
     i1 = IndexedBase('I1')
-    i2 = IndexedBase('I2')
+    i2 = Symbol('I2')
     r1 = IndexedBase('R1')
     r2 = IndexedBase('R2')
 
     i1_def = dr.define_einst(i1[a, b], x[a, c] * y[c, b])
-    i2_def = dr.define_einst(i2[a, b], y[a, c] * z[c, b])
-    r1_def = dr.define_einst(r1[a, b], i1[a, b] + i2[a, b])
+    i2_def = dr.define_einst(i2, i1[a, a])
+    r1_def = dr.define_einst(r1[a, b], i1[a, b] * i2)
     r2_def = dr.define_einst(r2[a, b], i1[a, b] * 2)
 
     return [i1_def, i2_def, r1_def, r2_def], [r1_def, r2_def]
