@@ -725,9 +725,14 @@ class FortranPrinter(ImperativeCodePrinter):
         self._heap_interm = heap_interm
         self._explicit_bounds = explicit_bounds
 
+        base_indent_size = int(self._env.globals['global_indent']) * int(
+            self._env.globals['indent_size']
+        )
+        self._base_indent = ' ' * base_indent_size
+
     def print_decl_eval(
             self, tensor_defs: typing.Iterable[TensorDef],
-            decl_type='real', explicit_bounds=False
+            decl_type=None, explicit_bounds=None
     ) -> typing.Tuple[typing.List[str], typing.List[str]]:
         """Print Fortran declarations and evaluations of tensor definitions.
 
@@ -738,11 +743,13 @@ class FortranPrinter(ImperativeCodePrinter):
             The tensor definitions to print.
 
         decl_type
-            The type to be declared for the tarrays.
+            The type to be declared for the tensors.  By default, the value set
+            for the printer will be used.
 
         explicit_bounds
             If the lower and upper bounds should be written explicitly in the
-            declaration.
+            declaration.  By default, the value set for the printer will be
+            used.
 
         Return
         ------
@@ -754,6 +761,11 @@ class FortranPrinter(ImperativeCodePrinter):
             The list of evaluation strings.
 
         """
+
+        if decl_type is None:
+            decl_type = self._default_type
+        if explicit_bounds is None:
+            explicit_bounds = self._explicit_bounds
 
         decls = []
         evals = []
@@ -767,32 +779,63 @@ class FortranPrinter(ImperativeCodePrinter):
         return decls, evals
 
     def print_decl(
-            self, ctx, decl_type, explicit_bounds
+            self, ctx, decl_type=None, explicit_bounds=None, allocatable=False
     ):
         """Print the Fortran declaration of the LHS of a tensor definition.
 
         A string will be returned that forms the naive declaration of the
-        given tarrays as local variables.
+        given tensor as local variables.
 
         """
 
+        decl_type = self._default_type if decl_type is None else decl_type
+        explicit_bounds = (
+            self._explicit_bounds if explicit_bounds is None else
+            explicit_bounds
+        )
+
         if len(ctx.indices) > 0:
-            sizes_decl = ', dimension({})'.format(', '.join(
-                ':'.join([self._print_lower(i.lower_expr), i.upper])
-                if explicit_bounds else i.size
-                for i in ctx.indices
-            ))
+            if allocatable:
+                bounds = ', '.join(':' for _ in ctx.indices)
+            else:
+                bounds = self._form_bounds(ctx, explicit_bounds)
+            sizes_decl = ', dimension({})'.format(bounds)
+            if allocatable:
+                sizes_decl += ', allocatable'
         else:
             sizes_decl = ''
 
-        base_indent = int(self._env.globals['global_indent']) * int(
-            self._env.globals['indent_size']
-        )
-        indentation = ' ' * base_indent
-
         return ''.join([
-            indentation, decl_type, sizes_decl, ' :: ', ctx.base
+            self._base_indent, decl_type, sizes_decl, ' :: ', ctx.base
         ])
+
+    def print_alloc(self, ctx, explicit_bounds=None):
+        """Print the allocation statement.
+        """
+        explicit_bounds = (
+            self._explicit_bounds if explicit_bounds is None else
+            explicit_bounds
+        )
+        bounds = self._form_bounds(ctx, explicit_bounds)
+        return ''.join([
+            self._base_indent, 'allocate(', ctx.base, '(', bounds, '))'
+        ])
+
+    def print_dealloc(self, ctx):
+        """Print the deallocation command.
+        """
+        return ''.join([
+            self._base_indent, 'deallocate(', ctx.base, ')'
+        ])
+
+    def _form_bounds(self, ctx, explicit_bounds):
+        """Form the string for array bounds.
+        """
+        return ', '.join(
+            ':'.join([self._print_lower(i.lower_expr), i.upper])
+            if explicit_bounds else i.size
+            for i in ctx.indices
+        )
 
     def _print_lower(self, lower: Expr):
         """Print the lower bound based on the Fortran convention.
