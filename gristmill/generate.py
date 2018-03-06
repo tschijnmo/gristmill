@@ -1,6 +1,7 @@
 """Generate source code from optimized computations."""
 
 import functools
+import itertools
 import textwrap
 import types
 import typing
@@ -729,6 +730,39 @@ class FortranPrinter(ImperativeCodePrinter):
             self._env.globals['indent_size']
         )
         self._base_indent = ' ' * base_indent_size
+
+    def doprint(self, eval_seq, origs=None, separate_decls=False):
+        """Make full printing of the evaluation steps.
+        """
+        events = self.form_events(eval_seq, origs)
+        decls = []
+        execs = []
+
+        for event in events:
+            if isinstance(event, _TensorDecl):
+                decls.append(self.print_decl(
+                    event.comput.ctx, allocatable=self._heap_interm
+                ))
+            elif isinstance(event, _BeforeCompute):
+                comput = event.comput
+                ctx = comput.ctx
+                if self._heap_interm and comput.is_interm and len(
+                        ctx.indices
+                ) > 0:
+                    execs.append(self.print_alloc(ctx))
+            elif isinstance(event, _TensorComput):
+                execs.append(self.print_eval(event.ctx))
+            elif isinstance(event, _NoLongerInUse):
+                ctx = event.comput.ctx
+                if self._heap_interm and len(ctx.indices) > 0:
+                    execs.append(self.print_dealloc(ctx))
+            else:
+                assert False  # Unknown event.
+
+        if separate_decls:
+            return '\n'.join(decls), '\n'.join(execs)
+        else:
+            return '\n'.join(itertools.chain(decls, execs))
 
     def print_decl_eval(
             self, tensor_defs: typing.Iterable[TensorDef],
