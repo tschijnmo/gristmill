@@ -216,10 +216,27 @@ def test_events_generation(eval_seq_deps):
     assert len(events) == 0
 
 
-def test_fortran_printer(simple_drudge, colourful_tensor, tmpdir):
-    """Test the functionality of the Fortran printer."""
+def _test_fortran_code(code, dir):
+    """Test the given Fortran code in the given directory.
 
-    dr = simple_drudge
+    The Fortran code is expected to generate an output of ``OK``.
+    """
+
+    orig_cwd = dir.chdir()
+
+    dir.join('test.f90').write(code)
+    stat = subprocess.run(['gfortran', '-o', 'test', '-fopenmp', 'test.f90'])
+    assert stat.returncode == 0
+    stat = subprocess.run(['./test'], stdout=subprocess.PIPE)
+    assert stat.stdout.decode().strip() == 'OK'
+
+    orig_cwd.chdir()
+    return True
+
+
+def test_basic_fortran_printer(colourful_tensor, tmpdir):
+    """Test the basic functionality of the Fortran printer."""
+
     tensor = colourful_tensor
 
     printer = FortranPrinter()
@@ -227,20 +244,11 @@ def test_fortran_printer(simple_drudge, colourful_tensor, tmpdir):
     assert len(decls) == 1
     assert len(evals) == 1
 
-    code = _FORTRAN_TEST_CODE.format(decl=decls[0], eval=evals[0])
-
-    orig_cwd = tmpdir.chdir()
-
-    tmpdir.join('test.f90').write(code)
-    stat = subprocess.run(['gfortran', '-o', 'test', '-fopenmp', 'test.f90'])
-    assert stat.returncode == 0
-    stat = subprocess.run(['./test'], stdout=subprocess.PIPE)
-    assert stat.stdout.decode().strip() == 'OK'
-
-    orig_cwd.chdir()
+    code = _FORTRAN_BASIC_TEST_CODE.format(decl=decls[0], eval=evals[0])
+    assert _test_fortran_code(code, tmpdir)
 
 
-_FORTRAN_TEST_CODE = """
+_FORTRAN_BASIC_TEST_CODE = """
 program main
 implicit none
 
@@ -268,6 +276,16 @@ end do
 
 expected = transpose(u) * 2 * r / (3 * s)
 expected = expected - matmul(u, matmul(diag, v))
+
+if (any(abs(x - expected) / abs(expected) > 1.0E-5)) then
+    write(*, *) "WRONG"
+end if
+
+write(*, *) "OK"
+
+end program main
+"""
+
 
 do a = 1, n
     do b = 1, n
