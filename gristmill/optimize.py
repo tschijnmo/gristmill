@@ -2910,8 +2910,7 @@ def verify_eval_seq(
 
     """
 
-    n_res = len(res)
-    n_interms = len(eval_seq) - n_res
+    res_dict = {i.base: i for i in res}
 
     substed_eval_seq = []
     defs_dict = {}
@@ -2926,24 +2925,24 @@ def verify_eval_seq(
         new_def = TensorDef(base, eval_.exts, rhs)
         substed_eval_seq.append(new_def)
 
-        if idx < n_interms:
+        if base in res_dict:
+            # For results.
+            ref = res_dict[base]
+            diff = (new_def - ref.rhs).simplify()
+            if diff != 0:
+                raise ValueError('Unequal definition for ', base)
+            del res_dict[base]
+        else:
+            # For intermediates.
             defs_dict[
                 base.label if isinstance(base, IndexedBase) else base
             ] = new_def
 
         continue
 
-    for i, j in zip(substed_eval_seq[-n_res:], res):
-        ref = j.simplify()
-        if i.lhs != ref.lhs:
-            raise ValueError(
-                'Unequal left-hand sides', i.lhs, 'with', ref.lhs
-            )
-        diff = (i.rhs - ref.rhs).simplify()
-        if diff != 0:
-            raise ValueError(
-                'Unequal definition for ', j.lhs, j
-            )
-        continue
+    if len(res_dict) != 0:
+        raise ValueError(
+            'Computation not given for', list(res_dict.keys())
+        )
 
     return True
