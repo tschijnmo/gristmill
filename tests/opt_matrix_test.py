@@ -482,3 +482,54 @@ def test_eval_compression(three_ranges):
 
     # Test the correctness.
     assert verify_eval_seq(res, targets, simplify=False)
+
+
+@pytest.mark.parametrize('res_at_end', [True, False])
+def test_interleaving_res_interm(three_ranges, res_at_end):
+    r"""Test the interleaving of results and intermediates.
+
+    Here we have intermediate,
+
+    .. math::
+
+        I = X Y
+
+    and result
+
+    .. math::
+        R1 = I * 2
+
+    and result
+
+    .. math::
+
+        R2 = I * tr(R1)
+
+    """
+
+    dr = three_ranges
+    p = dr.names
+    a, b, c, d, e = p.a, p.b, p.c, p.d, p.e
+
+    x = IndexedBase('X')
+    y = IndexedBase('Y')
+    r1 = IndexedBase('R1')
+    r2 = IndexedBase('R2')
+
+    r1_def = dr.define_einst(r1[a, b], x[a, c] * y[c, b] * 2)
+    r2_def = dr.define_einst(r2[a, b], x[a, c] * y[c, b] * x[d, e] * y[e, d])
+
+    origs = [r1_def, r2_def]
+    eval_seq = optimize(origs, res_at_end=res_at_end)
+
+    assert verify_eval_seq(eval_seq, origs)
+
+    assert len(eval_seq) == 4
+    if res_at_end:
+        assert eval_seq[2].base == r1
+    else:
+        assert eval_seq[1].base == r1
+    assert eval_seq[3].base == r2
+
+
+
