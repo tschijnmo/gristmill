@@ -287,13 +287,67 @@ end program main
 """
 
 
+def test_full_fortran_printer(eval_seq_deps, tmpdir):
+    """Test the Fortran printer for full evaluation."""
+
+    eval_seq, origs = eval_seq_deps
+
+    printer = FortranPrinter(openmp=False)
+    evals = printer.doprint(eval_seq, origs)
+
+    code = _FORTRAN_FULL_TEST_CODE.format(eval=evals)
+    assert _test_fortran_code(code, tmpdir)
+
+    sep_code = printer.doprint(
+        eval_seq, origs, separate_decls=True
+    )
+    assert len(sep_code) == 2
+    assert evals == '\n'.join(sep_code)
+
+
+_FORTRAN_FULL_TEST_CODE = """
+program main
+implicit none
+
+integer, parameter :: n = 10
+integer :: a, b, c
+
+real, dimension(n, n) :: x
+real, dimension(n, n) :: y
+real, dimension(n, n) :: r1
+real, dimension(n, n) :: r2
+real, dimension(n, n) :: expected_r1
+real, dimension(n, n) :: expected_r2
+
+call random_number(x)
+call random_number(y)
+
+block
+{eval}
+end block
+
+block
+real, dimension(n, n) :: xy
+real :: trace
+
+xy = matmul(x, y)
+
+trace = 0
 do a = 1, n
-    do b = 1, n
-        if (abs(x(a, b) - expected(a, b)) / abs(x(a, b)) > 1.0E-5) then
-            write(*, *) "WRONG"
-        end if
-    end do
+    trace = trace + xy(a, a)
 end do
+
+expected_r1 = xy * trace
+expected_r2 = xy * 2
+
+end block
+
+if (any(abs(r1 - expected_r1) / abs(expected_r1) > 1.0E-5)) then
+    write(*, *) "WRONG"
+end if
+if (any(abs(r2 - expected_r2) / abs(expected_r2) > 1.0E-5)) then
+    write(*, *) "WRONG"
+end if
 
 write(*, *) "OK"
 
