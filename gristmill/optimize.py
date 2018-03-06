@@ -117,7 +117,7 @@ def optimize(
         interm_fmt='tau^{}', contr_strat=ContrStrat.TRAV, opt_sum=True,
         repeated_terms_strat=RepeatedTermsStrat.NATURAL, opt_symm=True,
         req_an_opt=False, greedy_cutoff=-1, drop_cutoff=-1, rand_constr=False,
-        remove_shallow=True, stats=None
+        remove_shallow=True, res_at_end=True, stats=None
 ) -> typing.List[TensorDef]:
     """Optimize the evaluation of the given tensor computations.
 
@@ -207,6 +207,12 @@ def optimize(
         to justify their memory usage.  So by default, they just dropped, with
         their content inlined into places where they are referenced.
 
+    res_at_end
+        If the computation of the results should be kept at the end of the
+        computation list together.  When it is set to false, the computation of
+        intermediates and results will be interleaved together, which can be
+        more beneficial for freeing the memory used by some intermediates.
+
     stats
         For developers, when a mapping is given, some execution statistics will
         be dumped into it for analytics.
@@ -241,7 +247,7 @@ def optimize(
         rand_constr=rand_constr, remove_shallow=remove_shallow, stats=stats
     )
 
-    return opt.optimize()
+    return opt.optimize(res_at_end=res_at_end)
 
 
 #
@@ -1462,7 +1468,7 @@ class _Optimizer:
 
         self._res = None
 
-    def optimize(self):
+    def optimize(self, res_at_end=True):
         """Optimize the evaluation of the given computations.
         """
 
@@ -1474,7 +1480,7 @@ class _Optimizer:
             self._optimize(i)
             continue
 
-        self._res = self._linearize(res_nodes)
+        self._res = self._linearize(res_nodes, res_at_end=res_at_end)
 
         if self.stats is not None:
             self.stats['Number of nodes'] = len(self._interms_canon)
@@ -1571,7 +1577,7 @@ class _Optimizer:
     #
 
     def _linearize(
-            self, optimized: typing.Sequence[_EvalNode]
+            self, optimized: typing.Sequence[_EvalNode], res_at_end=True
     ) -> typing.List[TensorDef]:
         """Linearize optimized forms of the evaluation.
         """
@@ -1587,7 +1593,10 @@ class _Optimizer:
         for node in optimized:
             curr = self._linearize_node(node, interms, keep=True)
             assert curr is not None
-            res.append(curr)
+            if res_at_end:
+                res.append(curr)
+            else:
+                interms.append(curr)
             continue
 
         return self._finalize(itertools.chain(interms, res))
