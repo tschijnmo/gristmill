@@ -5,7 +5,6 @@ import textwrap
 import types
 import typing
 
-from drudge import TensorDef, Term, Range, prod_
 from drudge.term import try_resolve_range
 from sympy import (
     Expr, Mul, Pow, Integer, Rational, Add, Indexed, IndexedBase
@@ -15,7 +14,45 @@ from sympy.printing.fcode import FCodePrinter
 from sympy.printing.printer import Printer
 from sympy.printing.python import PythonPrinter
 
+from drudge import TensorDef, Term, Range, prod_
 from .utils import create_jinja_env
+
+
+#
+# General description of events
+# -----------------------------
+#
+
+class _TensorComput(typing.NamedTuple):
+    """Full description of a tensor computation.
+    """
+    is_interm: bool
+    def_: TensorDef
+    ctx: types.SimpleNamespace
+
+
+class _TensorDecl(typing.NamedTuple):
+    """Events for declaration of tensors.
+    """
+    comput: _TensorComput
+
+
+class _BeforeCompute(typing.NamedTuple):
+    """Events that come before the computation of any tensor.
+    """
+    comput: _TensorComput
+
+
+class _NoLongerInUse(typing.NamedTuple):
+    """Events after intermediate tensors are no longer in use.
+    """
+    comput: _TensorComput
+
+
+#
+# Actual printers
+# ---------------
+#
 
 
 class BasePrinter:
@@ -226,6 +263,90 @@ class BasePrinter:
                 self._indexed_proc(i)
                 continue
         return
+
+    def form_events(self, defs: typing.Iterable[TensorDef], origs=None):
+        """Form a linear list of full events from the definitions.
+
+        This is a mostly developer method that can turn any list of tensor
+        computations into a full list of events for their computation.
+
+        Currently, the events are comprised of
+
+        - Declarations of all intermediates,
+
+        - All the tensor computations, which are preceded by the
+          corresponding before-computation steps,
+
+        - Events indicating that an intermediate is no longer used after its
+          last usage.
+
+        Notably, we do not have declaration events for non-intermediate tensors.
+
+        Parameters
+        ----------
+
+        defs:
+            The computations.
+
+        origs:
+            An optional iterable of the original tensor computations before the
+            optimization.  Computations of bases out of this iterable are
+            understood to be intermediates.  When it is not given, no
+            computation will be taken as intermediate.
+
+        """
+
+        if origs is None:
+            orig_bases = None
+        else:
+            orig_bases = {i.base for i in origs}
+
+        computs = []
+        base2computs = {}
+        interms = []
+        for def_ in defs:
+            base = def_.base
+            is_interm = origs is not None and base not in orig_bases
+            comput = _TensorComput(
+                is_interm=is_interm, def_=def_, ctx=self.transl(def_)
+            )
+            computs.append(comput)
+            base2computs[base] = comput
+            if is_interm:
+                interms.append(base)
+            continue
+
+        # Track the dependencies for the intermediates.
+        last_refs = {}
+        for i, v in enumerate(computs):
+            def_: TensorDef = v.def_
+            for b in interms:
+                if def_.has_base(b):
+                    last_refs[b] = i
+                continue
+            continue
+
+        out_after_step = [[] for _ in computs]
+        for k, v in last_refs.items():
+            out_after_step[v].append(k)
+            continue
+
+        events = []
+        for i in computs:
+            if i.is_interm:
+                events.append(_TensorDecl(comput=i))
+            continue
+
+        for i, v in enumerate(computs):
+            events.append(_BeforeCompute(comput=v))
+            events.append(v)
+            for b in out_after_step[i]:
+                comput = base2computs[b]
+                events.append(_NoLongerInUse(comput=comput))
+                continue
+            continue
+
+        return events
 
     def render(self, templ_name: str, ctx: types.SimpleNamespace) -> str:
         """Render the given context for the given template.
