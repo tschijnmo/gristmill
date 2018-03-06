@@ -665,12 +665,35 @@ class FortranPrinter(ImperativeCodePrinter):
     language is fixed relative to the base :py:class:`ImperativeCodePrinter`.
     """
 
-    def __init__(self, openmp=True, print_indexed_cb=print_fortran_indexed,
-                 **kwargs):
+    def __init__(
+            self, openmp=True, print_indexed_cb=print_fortran_indexed,
+            default_type='real', heap_interm=True, explicit_bounds=False,
+            **kwargs
+    ):
         """Initialize a Fortran code printer.
 
         The printer class, the name of the template, and the line continuation
         symbol will be set automatically.
+
+        Parameters
+        ----------
+
+        openmp
+            If the evaluation is to be parallelized by OpenMP pragma.
+
+        print_indexed_cb
+            The callback to print tensor components.
+
+        default_type
+            The default data type for tensor declarations.
+
+        heap_interm
+            If intermediates are to be allocated on heap by default.
+
+        explicit_bounds
+            If the lower and upper bounds of the tensors are to be explicitly
+            written in declarations and allocations.
+
         """
 
         if openmp:
@@ -697,6 +720,10 @@ class FortranPrinter(ImperativeCodePrinter):
             }, add_templ=add_templ,
             **kwargs
         )
+
+        self._default_type = default_type
+        self._heap_interm = heap_interm
+        self._explicit_bounds = explicit_bounds
 
     def print_decl_eval(
             self, tensor_defs: typing.Iterable[TensorDef],
