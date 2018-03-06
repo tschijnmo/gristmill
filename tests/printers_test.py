@@ -5,11 +5,14 @@ import subprocess
 import textwrap
 
 import pytest
-from drudge import Drudge, Range
 from sympy import Symbol, IndexedBase, symbols
 from sympy.printing.python import PythonPrinter
 
+from drudge import Drudge, Range
 from gristmill import BasePrinter, FortranPrinter, EinsumPrinter, mangle_base
+from gristmill.generate import (
+    _TensorDecl, _BeforeCompute, _TensorComput, _NoLongerInUse
+)
 
 
 @pytest.fixture(scope='module')
@@ -48,11 +51,47 @@ def colourful_tensor(simple_drudge):
     a, b, c = p.R_dumms[:3]
 
     tensor = dr.define(x[a, b], (
-        ((2 * r) / (3 * s)) * u[b, a] -
-        dr.sum((c, p.R), u[a, c] * v[c, b] * c ** 2 / 2)
+            ((2 * r) / (3 * s)) * u[b, a] -
+            dr.sum((c, p.R), u[a, c] * v[c, b] * c ** 2 / 2)
     ))
 
     return tensor
+
+
+@pytest.fixture
+def eval_seq_deps(simple_drudge):
+    """A simple evaluation sequence with some dependencies.
+
+    Here, the tensors are all matrices. we have inputs X, Y, Z.
+
+    I1 = X Y
+    I2 = Y Z
+
+    R1 = I1 + I2
+    R2 = I1 * 5
+
+    So I1 should ran out of dependency after the evaluation of R1.
+
+    """
+
+    dr = simple_drudge
+    p = dr.names
+    a, b, c = p.a, p.b, p.c
+
+    x = IndexedBase('X')
+    y = IndexedBase('Y')
+    z = IndexedBase('Z')
+    i1 = IndexedBase('I1')
+    i2 = IndexedBase('I2')
+    r1 = IndexedBase('R1')
+    r2 = IndexedBase('R2')
+
+    i1_def = dr.define_einst(i1[a, b], x[a, c] * y[c, b])
+    i2_def = dr.define_einst(i2[a, b], y[a, c] * z[c, b])
+    r1_def = dr.define_einst(r1[a, b], i1[a, b] + i2[a, b])
+    r2_def = dr.define_einst(r2[a, b], i1[a, b] * 2)
+
+    return [i1_def, i2_def, r1_def, r2_def], [r1_def, r2_def]
 
 
 def test_base_printer_ctx(simple_drudge, colourful_tensor):
@@ -125,6 +164,57 @@ def test_base_printer_ctx(simple_drudge, colourful_tensor):
 
         else:
             assert False
+
+
+def test_events_generation(eval_seq_deps):
+    """Test the event generation facility in the base printer."""
+    eval_seq, origs = eval_seq_deps
+
+    printer = BasePrinter(PythonPrinter())
+    events = printer.form_events(eval_seq, origs)
+    events.reverse()
+
+    interm_computs = []
+    for i in eval_seq:
+        if str(i.base)[0] == 'R':
+            continue
+
+        # For only intermediates.
+        curr = events.pop()
+        comput = curr.comput
+        interm_computs.append(comput)
+        assert isinstance(curr, _TensorDecl)
+        assert comput.def_ == i
+        continue
+
+    for i, v in enumerate(eval_seq):
+        curr = events.pop()
+        assert isinstance(curr, _BeforeCompute)
+        comput = curr.comput
+
+        curr = events.pop()
+        assert isinstance(curr, _TensorComput)
+        assert curr is comput
+
+        is_interm = curr.is_interm
+
+        is_r1 = v.base == IndexedBase('R1')
+        is_r2 = v.base == IndexedBase('R2')
+
+        if is_r1 or is_r2:
+            curr = events.pop()
+            assert isinstance(curr, _NoLongerInUse)
+            assert not is_interm
+            if is_r1:
+                assert curr.comput is interm_computs[1]  # I2
+            else:
+                assert curr.comput is interm_computs[0]  # I1
+        else:
+            assert is_interm
+
+        continue
+
+    assert len(events) == 0
 
 
 def test_fortran_printer(simple_drudge, colourful_tensor, tmpdir):
