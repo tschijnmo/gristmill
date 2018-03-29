@@ -11,7 +11,7 @@ from sympy.printing.python import PythonPrinter
 from drudge import Drudge, Range
 from gristmill import BasePrinter, FortranPrinter, EinsumPrinter, mangle_base
 from gristmill.generate import (
-    _TensorDecl, _BeforeCompute, _TensorComput, _NoLongerInUse
+    _TensorDecl, _BeforeCompute, _ComputeTerm, _NoLongerInUse
 )
 
 
@@ -65,12 +65,11 @@ def eval_seq_deps(simple_drudge):
     Here, the tensors are all matrices. we have inputs X, Y.
 
     I1 = X Y
-    I2 = Tr(I1)
+    I2 = Y X
+    I3 = Tr(I1)
 
-    R1 = I1 * I2
+    R1 = I1 * I3 + I2
     R2 = I1 * 2
-
-    So I2 should ran out of dependency after the evaluation of R1.
 
     """
 
@@ -81,16 +80,18 @@ def eval_seq_deps(simple_drudge):
     x = IndexedBase('X')
     y = IndexedBase('Y')
     i1 = IndexedBase('I1')
-    i2 = Symbol('I2')
+    i2 = IndexedBase('I2')
+    i3 = Symbol('I3')
     r1 = IndexedBase('R1')
     r2 = IndexedBase('R2')
 
     i1_def = dr.define_einst(i1[a, b], x[a, c] * y[c, b])
-    i2_def = dr.define_einst(i2, i1[a, a])
-    r1_def = dr.define_einst(r1[a, b], i1[a, b] * i2)
+    i2_def = dr.define_einst(i2[a, b], y[a, c] * x[c, b])
+    i3_def = dr.define_einst(i3, i1[a, a])
+    r1_def = dr.define_einst(r1[a, b], i1[a, b] * i3 + i2[a, b])
     r2_def = dr.define_einst(r2[a, b], i1[a, b] * 2)
 
-    return [i1_def, i2_def, r1_def, r2_def], [r1_def, r2_def]
+    return [i1_def, i2_def, i3_def, r1_def, r2_def], [r1_def, r2_def]
 
 
 def test_base_printer_ctx(simple_drudge, colourful_tensor):
@@ -171,47 +172,90 @@ def test_events_generation(eval_seq_deps):
 
     printer = BasePrinter(PythonPrinter())
     events = printer.form_events(eval_seq, origs)
-    events.reverse()
 
-    interm_computs = []
-    for i in eval_seq:
-        if str(i.base)[0] == 'R':
-            continue
+    i1 = IndexedBase('I1')
+    i2 = IndexedBase('I2')
+    i3 = Symbol('I3')
+    r1 = IndexedBase('R1')
+    r2 = IndexedBase('R2')
 
-        # For only intermediates.
-        curr = events.pop()
-        comput = curr.comput
-        interm_computs.append(comput)
-        assert isinstance(curr, _TensorDecl)
-        assert comput.def_ == i
+    events.reverse()  # For easy popping from front.
+
+    for i in [i1, i2, i3]:
+        event = events.pop()
+        assert isinstance(event, _TensorDecl)
+        assert event.comput.target == i
         continue
 
-    for i, v in enumerate(eval_seq):
-        curr = events.pop()
-        assert isinstance(curr, _BeforeCompute)
-        comput = curr.comput
+    event = events.pop()
+    assert isinstance(event, _BeforeCompute)
+    assert event.comput.target == i1
 
-        curr = events.pop()
-        assert isinstance(curr, _TensorComput)
-        assert curr is comput
+    event = events.pop()
+    assert isinstance(event, _ComputeTerm)
+    assert event.comput.target == i1
+    assert event.term_idx == 0
 
-        is_interm = curr.is_interm
+    # I1 drives I3.
+    event = events.pop()
+    assert isinstance(event, _BeforeCompute)
+    assert event.comput.target == i3
 
-        is_r1 = v.base == IndexedBase('R1')
-        is_r2 = v.base == IndexedBase('R2')
+    event = events.pop()
+    assert isinstance(event, _ComputeTerm)
+    assert event.comput.target == i3
+    assert event.term_idx == 0
 
-        if is_r1 or is_r2:
-            curr = events.pop()
-            assert isinstance(curr, _NoLongerInUse)
-            assert not is_interm
-            if is_r1:
-                assert curr.comput is interm_computs[1]  # I2
-            else:
-                assert curr.comput is interm_computs[0]  # I1
-        else:
-            assert is_interm
+    # I3, I1, drives the first term of R1.
+    event = events.pop()
+    assert isinstance(event, _BeforeCompute)
+    assert event.comput.target == r1
 
-        continue
+    event = events.pop()
+    assert isinstance(event, _ComputeTerm)
+    assert event.comput.target == r1
+    assert event.term_idx == 0
+
+    # Now I3 should be out of dependency.
+    event = events.pop()
+    assert isinstance(event, _NoLongerInUse)
+    assert event.comput.target == i3
+
+    # Another one driven by I1.
+    event = events.pop()
+    assert isinstance(event, _BeforeCompute)
+    assert event.comput.target == r2
+
+    event = events.pop()
+    assert isinstance(event, _ComputeTerm)
+    assert event.comput.target == r2
+    assert event.term_idx == 0
+
+    # I1 no longer needed any more.
+    event = events.pop()
+    assert isinstance(event, _NoLongerInUse)
+    assert event.comput.target == i1
+
+    # Nothing driven.
+    event = events.pop()
+    assert isinstance(event, _BeforeCompute)
+    assert event.comput.target == i2
+
+    event = events.pop()
+    assert isinstance(event, _ComputeTerm)
+    assert event.comput.target == i2
+    assert event.term_idx == 0
+
+    # The last term in R1.
+    event = events.pop()
+    assert isinstance(event, _ComputeTerm)
+    assert event.comput.target == r1
+    assert event.term_idx == 1
+
+    # Finally, free I2.
+    event = events.pop()
+    assert isinstance(event, _NoLongerInUse)
+    assert event.comput.target == i2
 
     assert len(events) == 0
 
