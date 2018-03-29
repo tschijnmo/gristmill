@@ -25,7 +25,7 @@ from .utils import create_jinja_env
 # -----------------------------
 #
 
-class _TensorComput:
+class TensorComp:
     """Full description of a tensor computation.
 
     Although this does not actually form an event by itself, it is referenced in
@@ -71,11 +71,11 @@ class _TensorComput:
         return str(self.target)
 
 
-class _TensorDecl(typing.NamedTuple):
+class TensorDecl(typing.NamedTuple):
     """Events for declaration of intermediate tensors.
     """
 
-    comput: _TensorComput
+    comput: TensorComp
 
     def __repr__(self):
         """Form a string, mostly for debugging.
@@ -83,21 +83,21 @@ class _TensorDecl(typing.NamedTuple):
         return '_TensorDecl({!s})'.format(self.comput)
 
 
-class _BeforeCompute(typing.NamedTuple):
+class BeforeComp(typing.NamedTuple):
     """Events that come before the first computation of any tensor.
 
     Normally, it should be rendered as memory allocation or initialization to
     zero.
     """
 
-    comput: _TensorComput
+    comput: TensorComp
 
     def __repr__(self):
         """Form a string, mostly for debugging."""
         return '_BeforeCompute({!s})'.format(self.comput)
 
 
-class _ComputeTerm(typing.NamedTuple):
+class CompTerm(typing.NamedTuple):
     """Events for the computation of a term in a tensor.
 
     This events attempt to add a term to the LHS of the computation.
@@ -116,7 +116,7 @@ class _ComputeTerm(typing.NamedTuple):
 
     """
 
-    comput: _TensorComput
+    comput: TensorComp
     term_idx: int
     term_ctx: types.SimpleNamespace
 
@@ -127,13 +127,13 @@ class _ComputeTerm(typing.NamedTuple):
         )
 
 
-class _NoLongerInUse(typing.NamedTuple):
+class OutOfUse(typing.NamedTuple):
     """Events after intermediate tensors are no longer in use.
 
     This event can be used for the freeing of the associated computer memory.
     """
 
-    comput: _TensorComput
+    comput: TensorComp
 
     def __repr__(self):
         """Form a string, mostly for debugging."""
@@ -509,7 +509,7 @@ class BasePrinter:
         for idx, def_ in enumerate(defs):
             base = def_.base
             is_interm = origs is not None and base not in orig_bases
-            comput = _TensorComput(
+            comput = TensorComp(
                 is_interm=is_interm, def_=def_, ctx=self.transl(def_)
             )
 
@@ -547,7 +547,7 @@ class BasePrinter:
         events = []
         for i in computs:
             if i.is_interm:
-                events.append(_TensorDecl(comput=i))
+                events.append(TensorDecl(comput=i))
             continue
 
         for idx, comput in enumerate(computs):
@@ -573,7 +573,7 @@ class BasePrinter:
         return events
 
     def _add_term_eval(
-            self, events, computs: typing.Sequence[_TensorComput], comput_idx,
+            self, events, computs: typing.Sequence[TensorComp], comput_idx,
             term_idx
     ):
         """Add the evaluation of a term to the events list.
@@ -588,7 +588,7 @@ class BasePrinter:
         term_ctxes = comput.ctx.terms
         if len(pends) == len(term_ctxes):
             # First time a term is to be computed.
-            events.append(_BeforeCompute(comput))
+            events.append(BeforeComp(comput))
 
         term_ctx = term_ctxes[term_idx]
         if len(term_ctx.pend_prereqs) != 0:
@@ -597,7 +597,7 @@ class BasePrinter:
                 [computs[i].target for i in term_ctx.pend_prereqs]
             )
 
-        events.append(_ComputeTerm(
+        events.append(CompTerm(
             comput=comput, term_idx=term_idx, term_ctx=term_ctx
         ))
 
@@ -606,7 +606,7 @@ class BasePrinter:
             prereq = computs[i]
             del prereq.deps[(comput_idx, term_idx)]  # Must be present.
             if prereq.is_interm and len(prereq.deps) == 0:
-                events.append(_NoLongerInUse(prereq))
+                events.append(OutOfUse(prereq))
             continue
 
         # When this is the last term.  Possibly drive the evaluation of some
