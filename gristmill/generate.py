@@ -1,5 +1,6 @@
 """Generate source code from optimized computations."""
 
+import collections
 import functools
 import itertools
 import textwrap
@@ -24,30 +25,119 @@ from .utils import create_jinja_env
 # -----------------------------
 #
 
-class _TensorComput(typing.NamedTuple):
+class _TensorComput:
     """Full description of a tensor computation.
+
+    Although this does not actually form an event by itself, it is referenced in
+    all the events for the actual computation.
+
     """
-    is_interm: bool
-    def_: TensorDef
-    ctx: types.SimpleNamespace
+
+    def __init__(self, is_interm: bool, def_: TensorDef, ctx):
+        """Initialize the computation."""
+        self._is_interm = is_interm
+        self._def = def_
+        self._ctx = ctx
+
+    @property
+    def is_interm(self):
+        """If the computation is an intermediate.
+        """
+        return self._is_interm
+
+    @property
+    def def_(self):
+        """The tensor definition for the computation."""
+        return self._def
+
+    @property
+    def ctx(self):
+        """The rendering context for the entire computation.
+        """
+        return self._ctx
+
+    @property
+    def target(self):
+        """The base of the target tensor to compute.
+        """
+        return self._def.base
+
+    def __str__(self):
+        """Form a string representation.
+
+        For the ease of readability during debugging, here the string form is
+        only based on the target tensor name.
+        """
+        return str(self.target)
 
 
 class _TensorDecl(typing.NamedTuple):
-    """Events for declaration of tensors.
+    """Events for declaration of intermediate tensors.
     """
+
     comput: _TensorComput
+
+    def __repr__(self):
+        """Form a string, mostly for debugging.
+        """
+        return '_TensorDecl({!s})'.format(self.comput)
 
 
 class _BeforeCompute(typing.NamedTuple):
-    """Events that come before the computation of any tensor.
+    """Events that come before the first computation of any tensor.
+
+    Normally, it should be rendered as memory allocation or initialization to
+    zero.
     """
+
     comput: _TensorComput
+
+    def __repr__(self):
+        """Form a string, mostly for debugging."""
+        return '_BeforeCompute({!s})'.format(self.comput)
+
+
+class _ComputeTerm(typing.NamedTuple):
+    """Events for the computation of a term in a tensor.
+
+    This events attempt to add a term to the LHS of the computation.
+
+    Attributes
+    ----------
+
+    comput
+       The actual full computation.
+
+    term_idx
+        Index to the term being computed.
+
+    term_ctx
+        The rendering context for the current term.
+
+    """
+
+    comput: _TensorComput
+    term_idx: int
+    term_ctx: types.SimpleNamespace
+
+    def __repr__(self):
+        """Format a string, mostly for debugging."""
+        return "_ComputeTerm({!s}, {!s})".format(
+            self.comput, self.term_ctx.orig_term
+        )
 
 
 class _NoLongerInUse(typing.NamedTuple):
     """Events after intermediate tensors are no longer in use.
+
+    This event can be used for the freeing of the associated computer memory.
     """
+
     comput: _TensorComput
+
+    def __repr__(self):
+        """Form a string, mostly for debugging."""
+        return '_NoLongerInUse({!s})'.format(self.comput)
 
 
 #
