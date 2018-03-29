@@ -1,5 +1,6 @@
 """Generate source code from optimized computations."""
 
+import abc
 import collections
 import functools
 import itertools
@@ -146,7 +147,7 @@ class OutOfUse(typing.NamedTuple):
 #
 
 
-class BasePrinter:
+class BasePrinter(abc.ABC):
     """The base class for tensor printers.
     """
 
@@ -630,6 +631,122 @@ class BasePrinter:
                 continue
 
         return
+
+    #
+    # Top-level driver functions
+    # --------------------------
+    #
+
+    def doprint(self, eval_seq, origs=None, separate_decls=False):
+        """Make full printing of the evaluation steps.
+
+        This is the main driver function to generate code for tensor
+        computations.
+
+        Parameters
+        ----------
+
+        eval_seq
+            An iterable of tensor definitions for the full evaluation sequence.
+
+        origs
+            An iterable of the original tensor definitions before the
+            optimization.  When it is not given, no computation is going to be
+            considered to be an intermediate.
+
+        separate_decls
+            When it is set to true, the declarations and the computations are
+            returned as two separate strings.  It is mostly useful for languages
+            requiring declarations to be centralized on the top of a scope.
+            Not relevant for languages without declarations.
+
+        Notes
+        -----
+
+        **For printer writers:**
+
+        Internally, first the computations will be transformed into a linear
+        list of events by :py:meth:`form_events`.  Possible events include
+
+        - :py:cls:`TensorDecl`
+        - :py:cls:`BeforeComp`
+        - :py:cls:`CompTerm`
+        - :py:cls:`OutOfUse`
+
+        Individual printers should override the abstract methods
+
+        - :py:meth:`print_decl`
+        - :py:meth:`print_before_comp`
+        - :py:meth:`print_comp_term`
+        - :py:meth:`print_out_of_use`
+
+        to generate code for each of these events.  This framework can be useful
+        for basically all programming languages common in scientific computing.
+
+        """
+        events = self.form_events(eval_seq, origs)
+        decls = []
+        execs = []
+
+        dispatch = {
+            BeforeComp: self.print_before_comp,
+            CompTerm: self.print_comp_term,
+            OutOfUse: self.print_out_of_use
+        }
+
+        for event in events:
+            if isinstance(event, TensorDecl):
+                code = self.print_decl(event)
+                if code is not None:
+                    decls.append(code)
+            else:
+                cls = type(event)
+                if cls not in dispatch:
+                    raise ValueError('Invalid event', event)
+                code = dispatch[cls](event)
+                execs.append(code)
+            continue
+
+        if separate_decls:
+            return '\n'.join(decls), '\n'.join(execs)
+        else:
+            return '\n'.join(itertools.chain(decls, execs))
+
+    @abc.abstractmethod
+    def print_decl(self, event: TensorDecl) -> typing.Optional[str]:
+        """Print the declaration of an intermediate tensor.
+
+        For languages without explicit declaration, this function can simply
+        return None.
+        """
+        pass
+
+    @abc.abstractmethod
+    def print_before_comp(self, event: BeforeComp) -> str:
+        """Print the code before the first computation of an intermediate.
+
+        Normally, the tensor to be computed needs to be initialized to zero
+        before its terms are added to it.  Also for some cases, memory
+        allocation may need to be performed for intermediates.
+        """
+        pass
+
+    @abc.abstractmethod
+    def print_comp_term(self, event: CompTerm) -> str:
+        """Print the computation of a tensor term.
+
+        The code should add the term to the target as well.
+        """
+        pass
+
+    @abc.abstractmethod
+    def print_out_of_use(self, event: OutOfUse) -> str:
+        """Print the code to execute after an intermediate is out-of-use.
+
+        Typically, the memory associated with the intermediate tensor can be
+        freed in this event.
+        """
+        pass
 
 
 def mangle_base(func):
