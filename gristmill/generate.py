@@ -223,12 +223,19 @@ class BasePrinter:
                 Factors which are not simple indexed quantity, given as a list
                 of the printed form directly.
 
+            orig_term
+                The original term object.
+
+        orig_def
+            The original definition of the tensor computation.
+
         The actual content of the context can also be customized by overriding
         the :py:meth:`proc_ctx` in subclasses.
 
         """
 
         ctx = types.SimpleNamespace()
+        ctx.orig_def = tensor_def
 
         base = tensor_def.base
         ctx.base = self._print_scal(
@@ -248,6 +255,7 @@ class BasePrinter:
         for term in tensor_def.rhs_terms:
 
             term_ctx = types.SimpleNamespace()
+            term_ctx.orig_term = term
             terms.append(term_ctx)
 
             indices_dict.update(term.sums)
