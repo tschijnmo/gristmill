@@ -175,6 +175,11 @@ class BasePrinter:
         self._scal_printer = scal_printer
         self._indexed_proc = indexed_proc_cb
 
+    #
+    # Translation to rendering contexts
+    # ---------------------------------
+    #
+
     def transl(self, tensor_def: TensorDef) -> types.SimpleNamespace:
         """Translate tensor definition into context for template rendering.
 
@@ -363,90 +368,6 @@ class BasePrinter:
                 continue
         return
 
-    def form_events(self, defs: typing.Iterable[TensorDef], origs=None):
-        """Form a linear list of full events from the definitions.
-
-        This is a mostly developer method that can turn any list of tensor
-        computations into a full list of events for their computation.
-
-        Currently, the events are comprised of
-
-        - Declarations of all intermediates,
-
-        - All the tensor computations, which are preceded by the
-          corresponding before-computation steps,
-
-        - Events indicating that an intermediate is no longer used after its
-          last usage.
-
-        Notably, we do not have declaration events for non-intermediate tensors.
-
-        Parameters
-        ----------
-
-        defs:
-            The computations.
-
-        origs:
-            An optional iterable of the original tensor computations before the
-            optimization.  Computations of bases out of this iterable are
-            understood to be intermediates.  When it is not given, no
-            computation will be taken as intermediate.
-
-        """
-
-        if origs is None:
-            orig_bases = None
-        else:
-            orig_bases = {i.base for i in origs}
-
-        computs = []
-        base2computs = {}
-        interms = []
-        for def_ in defs:
-            base = def_.base
-            is_interm = origs is not None and base not in orig_bases
-            comput = _TensorComput(
-                is_interm=is_interm, def_=def_, ctx=self.transl(def_)
-            )
-            computs.append(comput)
-            base2computs[base] = comput
-            if is_interm:
-                interms.append(base)
-            continue
-
-        # Track the dependencies for the intermediates.
-        last_refs = {}
-        for i, v in enumerate(computs):
-            def_: TensorDef = v.def_
-            for b in interms:
-                if def_.has_base(b):
-                    last_refs[b] = i
-                continue
-            continue
-
-        out_after_step = [[] for _ in computs]
-        for k, v in last_refs.items():
-            out_after_step[v].append(k)
-            continue
-
-        events = []
-        for i in computs:
-            if i.is_interm:
-                events.append(_TensorDecl(comput=i))
-            continue
-
-        for i, v in enumerate(computs):
-            events.append(_BeforeCompute(comput=v))
-            events.append(v)
-            for b in out_after_step[i]:
-                comput = base2computs[b]
-                events.append(_NoLongerInUse(comput=comput))
-                continue
-            continue
-
-        return events
-
     def render(self, templ_name: str, ctx: types.SimpleNamespace) -> str:
         """Render the given context for the given template.
 
@@ -502,6 +423,213 @@ class BasePrinter:
     def _print_scal(self, expr: Expr):
         """Print a scalar."""
         return self._scal_printer.doprint(expr)
+
+    #
+    # Formation of event lists from computations
+    # ------------------------------------------
+    #
+
+    def form_events(self, defs: typing.Iterable[TensorDef], origs=None):
+        """Form a linear list of full events from the definitions.
+
+        This is a mostly developer method that can turn any list of tensor
+        computations into a full list of events for their computation.
+
+        Currently, the events are comprised of
+
+        - Declarations of all intermediates,
+
+        - Events before the first computation of a tensor,
+
+        - Addition of a term, which maybe a plain reference to another tensor or
+          a contraction, to another tensor,
+
+        - Events indicating that an intermediate is no longer used.
+
+        Notably, we do not have declaration events for non-intermediate tensors,
+        since they generally have different treatment from the intermediates.
+
+        Parameters
+        ----------
+
+        defs:
+            The computations.
+
+        origs:
+            An optional iterable of the original tensor computations before the
+            optimization.  Computations of bases out of this iterable are
+            understood to be intermediates.  When it is not given, no
+            computation will be taken as intermediate.
+
+
+        Notes
+        -----
+
+        Internally, some attributes are attached to computations, which will be
+        deleted after the procedure.  These attributes generally use integer
+        indices to track computations and terms.  For either a computation or a
+        term, it is called pending when it is not yet computed, otherwise it is
+        said to be computed or finished.
+
+        pends
+            The indices to the pending terms of the computation.  When it is
+            empty, the computation is finished.
+
+        deps
+            Pending terms that is dependent on the current tensor.  For
+            intermediates only. Given as computation index / term index pairs.
+            Earlier dependents comes first.  Due to the absence of native
+            support of an ordered set or linked list, here it is an ordered
+            dictionary with all the values being None.
+
+        For each term in the context, some attributes are also added.
+
+        pend_prereqs
+            Pending prerequisites for the evaluation of a terms, given as a set
+            of computation indices.
+
+        fin_prereqs
+            Finished prerequisites for a term.
+
+        All these attributes are for the generation of event lists only.  They
+        will be removed after the procedure.  So printers cannot read them and
+        do not need to.
+
+        """
+
+        if origs is None:
+            orig_bases = None
+        else:
+            orig_bases = {i.base for i in origs}
+
+        # Generation of _TensorComput objects and rendering contexts.
+        computs = []
+        base2idx = {}
+        interms = set()  # Bases for the intermediates
+        for idx, def_ in enumerate(defs):
+            base = def_.base
+            is_interm = origs is not None and base not in orig_bases
+            comput = _TensorComput(
+                is_interm=is_interm, def_=def_, ctx=self.transl(def_)
+            )
+
+            # Internal attributes.
+            #
+            # To be actually filled later, except pends.
+            comput.pends = {i for i in range(def_.n_terms)}
+            comput.deps = collections.OrderedDict()
+            for i in comput.ctx.terms:
+                i.pend_prereqs = set()
+                i.fin_prereqs = set()
+
+            computs.append(comput)
+            base2idx[base] = idx
+            if is_interm:
+                interms.add(base)
+            continue
+
+        # Track the dependencies for the intermediates.
+        for comput_idx, comput in enumerate(computs):
+            for term_idx, term_ctx in enumerate(comput.ctx.terms):
+                term: Term = term_ctx.orig_term
+                for b in interms:
+                    if term.has_base(b):
+                        b_idx = base2idx[b]
+                        term_ctx.pend_prereqs.add(b_idx)
+                        computs[b_idx].deps[
+                            (comput_idx, term_idx)
+                        ] = None
+                    continue
+                continue
+            continue
+
+        # Actual generation of the event list.
+        events = []
+        for i in computs:
+            if i.is_interm:
+                events.append(_TensorDecl(comput=i))
+            continue
+
+        for idx, comput in enumerate(computs):
+            while len(comput.pends) > 0:
+                term_idx = next(iter(comput.pends))
+                self._add_term_eval(events, computs, idx, term_idx)
+                continue
+            continue
+
+        # Remove temporary attributes.
+        for i in computs:
+            assert len(i.pends) == 0
+            del i.pends
+            assert len(i.deps) == 0
+            del i.deps
+            for j in i.ctx.terms:
+                assert len(j.pend_prereqs) == 0
+                del j.pend_prereqs
+                del j.fin_prereqs
+                continue
+            continue
+
+        return events
+
+    def _add_term_eval(
+            self, events, computs: typing.Sequence[_TensorComput], comput_idx,
+            term_idx
+    ):
+        """Add the evaluation of a term to the events list.
+
+        This function also attempts to add the preparation steps and following
+        steps.  Also the given term index is going to be removed from the
+        pending terms of the computation as well.
+        """
+
+        comput = computs[comput_idx]
+        pends = comput.pends
+        term_ctxes = comput.ctx.terms
+        if len(pends) == len(term_ctxes):
+            # First time a term is to be computed.
+            events.append(_BeforeCompute(comput))
+
+        term_ctx = term_ctxes[term_idx]
+        if len(term_ctx.pend_prereqs) != 0:
+            raise ValueError(
+                'Invalid evaluation sequence!', comput.target, 'needs',
+                [computs[i].target for i in term_ctx.pend_prereqs]
+            )
+
+        events.append(_ComputeTerm(
+            comput=comput, term_idx=term_idx, term_ctx=term_ctx
+        ))
+
+        # Possibly free dependent intermediates.
+        for i in term_ctx.fin_prereqs:
+            prereq = computs[i]
+            del prereq.deps[(comput_idx, term_idx)]  # Must be present.
+            if prereq.is_interm and len(prereq.deps) == 0:
+                events.append(_NoLongerInUse(prereq))
+            continue
+
+        # When this is the last term.  Possibly drive the evaluation of some
+        # intermediates that can be evaluated.
+        pends.remove(term_idx)
+        if len(pends) == 0:
+            deps = list(comput.deps.keys())
+            for dc_i, dt_i in deps:
+                dc = computs[dc_i]
+                dt = dc.ctx.terms[dt_i]
+
+                pend_prereqs = dt.pend_prereqs
+                pend_prereqs.remove(comput_idx)  # It must be present.
+                fin_prereqs = dt.fin_prereqs
+                assert comput_idx not in fin_prereqs
+                fin_prereqs.add(comput_idx)
+
+                if len(pend_prereqs) == 0:
+                    # Ready to go, make recursion!
+                    self._add_term_eval(events, computs, dc_i, dt_i)
+                continue
+
+        return
 
 
 def mangle_base(func):
