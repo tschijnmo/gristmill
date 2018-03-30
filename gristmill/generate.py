@@ -861,12 +861,12 @@ def mangle_base(func):
 
 
 #
-# The imperative code printers
-# ----------------------------
+# Naive imperative code printers
+# ------------------------------
 #
 
 
-class ImperativeCodePrinter(BasePrinter):
+class NaiveCodePrinter(BasePrinter):
     """Printer for automatic generation of naive imperative code.
 
     This printer supports the printing of the evaluation of tensor
@@ -880,11 +880,10 @@ class ImperativeCodePrinter(BasePrinter):
 
     """
 
-    def __init__(self, scal_printer: Printer, print_indexed_cb,
-                 global_indent=1, indent_size=4, max_width=80,
-                 line_cont='', breakable_regex=r'(\s*[+-]\s*)', stmt_end='',
-                 add_globals=None, add_filters=None,
-                 add_tests=None, add_templ=None, **kwargs):
+    def __init__(
+            self, scal_printer: Printer, print_indexed_cb, stmt_end='',
+            zero_literal='0.0', add_filters=None, add_globals=None, **kwargs
+    ):
         """
         Initialize the automatic code printer.
 
@@ -897,50 +896,35 @@ class ImperativeCodePrinter(BasePrinter):
             the printed form.  This will be called after the given processing of
             indexed nodes.
 
-        global_indent
-            The base global indentation of the generated code.
-
-        indent_size
-            The size of the indentation.
-
-        max_width
-            The maximum width for each line.
-
-        line_cont
-            The string used for indicating line continuation.
-
-        breakable_regex
-            The regular expression used to break long expressions.
-
         stmt_end
             The ending of the statements.
 
-        index_paren
-            The pair of parenthesis for indexing arrays.
+        zero_literal
+            The literal for number 0.
 
         All options to the base class :py:class:`BasePrinter` are also
         supported.
 
         """
 
+        filters = {
+            'form_loop_opens': self._form_loop_opens,
+            'form_loop_closes': self._form_loop_closes
+        }
+        if add_filters is not None:
+            filters.update(add_filters)
+
         # Some globals for template rendering.
-        default_globals = {
-            'global_indent': global_indent,
-            'indent_size': indent_size,
-            'max_width': max_width,
-            'line_cont': line_cont,
-            'breakable_regex': breakable_regex,
+        globals_ = {
             'stmt_end': stmt_end,
+            'zero_literal': zero_literal,
         }
         if add_globals is not None:
-            default_globals.update(add_globals)
+            globals_.update(add_globals)
 
         # Initialize the base class.
         super().__init__(
-            scal_printer,
-            add_globals=default_globals,
-            add_filters=add_filters, add_tests=add_tests, add_templ=add_templ,
-            **kwargs
+            scal_printer, add_filters=filters, add_globals=globals_, **kwargs
         )
 
         self._print_indexed = print_indexed_cb
@@ -986,10 +970,67 @@ class ImperativeCodePrinter(BasePrinter):
 
         return
 
-    def print_eval(self, ctx: types.SimpleNamespace):
-        """Print the evaluation of a tensor definition.
+    #
+    # Printing utilities
+    #
+    # Here we basically adapt some new small abstract functions into
+    # full-fledged print_before_comp and print_comp_term.  The rest are left to
+    # be implemented in the individual printers.
+    #
+
+    @abc.abstractmethod
+    def form_loop_open(self, ctx) -> str:
+        """Form the loop opening for an index.
         """
-        return self.render('imperative', ctx)
+        pass
+
+    @abc.abstractmethod
+    def form_loop_close(self, ctx) -> str:
+        """Form the closing for a loop over the given index.
+        """
+        pass
+
+    def _form_loop_opens(self, indices, base_level=0):
+        """Form the nested loop openings.
+
+        This method is primarily for usage inside templates under the name
+        without the initial underscore.
+        """
+        return '\n'.join(
+            self._env.form_indent(base_level + i) + self.form_loop_open(v)
+            for i, v in enumerate(indices)
+        )
+
+    def _form_loop_closes(self, indices, base_level=0):
+        """Form the nested loop closings.
+
+        The order of the loop closings will be the reverse of what is given.
+        """
+        n_indices = len(indices)
+
+        return '\n'.join(
+            self._env.form_indent(base_level + n_indices - i - 1)
+            + self.form_loop_close(v)
+            for i, v in enumerate(reversed(indices))
+        )
+
+    def print_before_comp(self, event: BeforeComp):
+        """Print the action before a computation.
+
+        Here we only attempt to zero-out the tensor naively.
+        """
+        return self.render('naivezero', event.comput.ctx)
+
+    def print_comp_term(self, event: CompTerm):
+        """Print the action to add a term to a target tensor.
+
+        Here, naive nested loops are going to be used for the computation.
+        """
+        ctx = event.comput.ctx
+        ctx.term = event.term_ctx
+        code = self.render('naiveterm', ctx)
+        del ctx.terms
+        return code
 
 
 #

@@ -1,0 +1,25 @@
+{#
+Add a term to a target tensor naively
+-------------------------------------
+#}
+{#
+    First loop over the external indices
+#}
+{{ 0 | form_indent }}{% include "term_prelude" ignore missing %}
+{{ indices | form_loop_opens }}
+{#
+    Next print out the summation loops
+#}
+{{ term.sums | form_loop_opens(n_ext) -}}
+{#
+    Now we can accumulate the terms into the destination
+#}
+{% set inner_indent = (term.sums | length) + n_exts %}
+{{ inner_indent | form_indent }}{{ indexed | trim }} = {{ indexed | trim }} {{ term.phase }} ( {{ line_cont }}
+{{ inner_indent + cont_indent | form_indent }}{{ term.amp }}{{ line_cont }}
+{{ inner_indent | form_indent }}){{ stmt_end }}
+{#
+    Print the closing of the loops
+#}{{ term.sums | form_loop_closes(n_ext) }}
+{{ indices | form_loop_closes }}
+{{ 0 | form_indent }}{% include "term_finale" ignore missing %}
