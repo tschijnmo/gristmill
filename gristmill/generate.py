@@ -1048,11 +1048,11 @@ def print_c_indexed(base, indices):
     ])
 
 
-class CPrinter(ImperativeCodePrinter):
-    """C code printer.
+class CPrinter(NaiveCodePrinter):
+    """Naive C code printer.
 
-    In this class, just some parameters for C programming language is fixed
-    relative to the base :py:class:`ImperativeCodePrinter`.
+    In this class, just some parameters for the C programming language is fixed
+    relative to the base :py:class:`NaiveCodePrinter`.
     """
 
     def __init__(self, print_indexed_cb=print_c_indexed, **kwargs):
@@ -1063,34 +1063,53 @@ class CPrinter(ImperativeCodePrinter):
         """
 
         super().__init__(
-            CCodePrinter(),
-            print_indexed_cb=print_indexed_cb,
-            line_cont='\\', stmt_end=';',
-            add_filters={
-                'form_loop_beg': _form_c_loop_beg,
-                'form_loop_end': _form_c_loop_end,
-            }, add_globals={
-                'zero_literal': '0.0'
-            },
-            **kwargs
+            CCodePrinter(), print_indexed_cb=print_indexed_cb,
+            line_cont='\\', stmt_end=';', **kwargs
         )
 
+    def form_loop_open(self, ctx):
+        """Form the loop opening for C.
+        """
+        return 'for({index}={lower}; {index}<{upper}, {index}++)'.format(
+            index=ctx.index, lower=ctx.lower, upper=ctx.upper
+        ) + ' {'
 
-#
-# Some filters for C programming language
-#
+    def form_loop_close(self, _):
+        """Form the loop closing for C.
+        """
+        return '}'
 
+    #
+    # Other abstract methods.
+    #
 
-def _form_c_loop_beg(ctx):
-    """Form the loop beginning for C."""
-    return 'for({index}={lower}; {index}<{upper}, {index}++)'.format(
-        index=ctx.index, lower=ctx.lower, upper=ctx.upper
-    ) + ' {'
+    def print_decl(self, event: TensorDecl):
+        """Print declaration of an intermediate tensor.
 
+        Here we simply write a declaration for an automatic array.
+        """
+        ctx = event.comput.ctx
 
-def _form_c_loop_end(_):
-    """Form the loop ending for C."""
-    return '}'
+        return ''.join(itertools.chain([
+            self._env.form_indent(0), 'double', ' ', ctx.base
+        ], (
+            '[{}]'.format(i.size) for i in ctx.indices
+        )))
+
+    def print_begin_body(self, event: BeginBody):
+        """Do nothing.
+        """
+        return None
+
+    def print_out_of_use(self, event: OutOfUse):
+        """Do nothing.
+        """
+        return None
+
+    def print_end_body(self, event: EndBody):
+        """Do nothing.
+        """
+        return None
 
 
 #
