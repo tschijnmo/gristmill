@@ -84,6 +84,17 @@ class TensorDecl(typing.NamedTuple):
         return '_TensorDecl({!s})'.format(self.comput)
 
 
+class BeginBody:
+    """Events for the beginning of the main computational body.
+    """
+    __slots__ = []
+
+    def __repr__(self):
+        """Form a string representation.
+        """
+        return 'BeginBody()'
+
+
 class BeforeComp(typing.NamedTuple):
     """Events that come before the first computation of any tensor.
 
@@ -139,6 +150,17 @@ class OutOfUse(typing.NamedTuple):
     def __repr__(self):
         """Form a string, mostly for debugging."""
         return '_NoLongerInUse({!s})'.format(self.comput)
+
+
+class EndBody:
+    """Events for the end of the main computational body.
+    """
+    __slots__ = []
+
+    def __repr__(self):
+        """Form a string representation.
+        """
+        return 'EndBody()'
 
 
 #
@@ -449,12 +471,16 @@ class BasePrinter(abc.ABC):
 
         - Declarations of all intermediates,
 
+        - An event marking the beginning of the main computational body,
+
         - Events before the first computation of a tensor,
 
         - Addition of a term, which maybe a plain reference to another tensor or
           a contraction, to another tensor,
 
-        - Events indicating that an intermediate is no longer used.
+        - Events indicating that an intermediate is no longer used,
+
+        - An event marking the end of the computational body.
 
         Notably, we do not have declaration events for non-intermediate tensors,
         since they generally have different treatment from the intermediates.
@@ -560,12 +586,16 @@ class BasePrinter(abc.ABC):
                 events.append(TensorDecl(comput=i))
             continue
 
+        events.append(BeginBody())
+
         for idx, comput in enumerate(computs):
             while len(comput.pends) > 0:
                 term_idx = next(iter(comput.pends))
                 self._add_term_eval(events, computs, idx, term_idx)
                 continue
             continue
+
+        events.append(EndBody())
 
         # Remove temporary attributes.
         for i in computs:
@@ -678,16 +708,20 @@ class BasePrinter(abc.ABC):
         list of events by :py:meth:`form_events`.  Possible events include
 
         - :py:cls:`TensorDecl`
+        - :py:cls:`BeginBody`
         - :py:cls:`BeforeComp`
         - :py:cls:`CompTerm`
         - :py:cls:`OutOfUse`
+        - :py:cls:`EndBody`
 
         Individual printers should override the abstract methods
 
         - :py:meth:`print_decl`
+        - :py:meth:`print_begin_body`
         - :py:meth:`print_before_comp`
         - :py:meth:`print_comp_term`
         - :py:meth:`print_out_of_use`
+        - :py:meth:`print_end_body`
 
         to generate code for each of these events.  None can always be returned
         to skip the code generation for a particle event.  This framework can be
@@ -702,7 +736,9 @@ class BasePrinter(abc.ABC):
         dispatch = {
             BeforeComp: self.print_before_comp,
             CompTerm: self.print_comp_term,
-            OutOfUse: self.print_out_of_use
+            OutOfUse: self.print_out_of_use,
+            BeginBody: self.print_begin_body,
+            EndBody: self.print_end_body
         }
 
         for event in events:
@@ -734,6 +770,16 @@ class BasePrinter(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def print_begin_body(self, event: BeginBody) -> typing.Optional[str]:
+        """Print the beginning of the main computational body.
+
+        This event is generally designed for the initialization of some
+        resources before the actual computational work.  For instance, the
+        initialization of some kind of parallel environment.
+        """
+        pass
+
+    @abc.abstractmethod
     def print_before_comp(self, event: BeforeComp) -> typing.Optional[str]:
         """Print the code before the first computation of an intermediate.
 
@@ -757,6 +803,15 @@ class BasePrinter(abc.ABC):
 
         Typically, the memory associated with the intermediate tensor can be
         freed in this event.
+        """
+        pass
+
+    @abc.abstractmethod
+    def print_end_body(self, event: EndBody) -> typing.Optional[str]:
+        """Print the end of the main computational body.
+
+        This event is generally designed for releasing the resources from
+        :py:meth:`print_begin_body`.
         """
         pass
 
