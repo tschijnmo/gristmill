@@ -18,7 +18,7 @@ from sympy.printing.printer import Printer
 from sympy.printing.python import PythonPrinter
 
 from drudge import TensorDef, Term, Range, prod_
-from .utils import create_jinja_env
+from .utils import JinjaEnv
 
 
 #
@@ -151,9 +151,10 @@ class BasePrinter(abc.ABC):
     """The base class for tensor printers.
     """
 
-    def __init__(self, scal_printer: Printer, indexed_proc_cb=lambda x: None,
-                 add_globals=None, add_filters=None, add_tests=None,
-                 add_templ=None):
+    def __init__(
+            self, scal_printer: Printer, indexed_proc_cb=lambda x: None,
+            **kwargs
+    ):
         """Initializes a base printer.
 
         Parameters
@@ -168,9 +169,13 @@ class BasePrinter(abc.ABC):
             described in :py:meth:`transl`) to do additional processing.  For
             most tasks, :py:func:`mangle_base` can be helpful.
 
+        kwargs
+            All the keyword arguments are forwarded to :py:cls:`utils.JinjaEnv`
+            constructor.
+
         """
 
-        env = create_jinja_env(add_filters, add_globals, add_tests, add_templ)
+        env = JinjaEnv(**kwargs)
 
         self._env = env
         self._scal_printer = scal_printer
