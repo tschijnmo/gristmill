@@ -6,12 +6,13 @@ import re
 import typing
 
 import numpy as np
-from drudge import prod_, TensorDef, Range
 from jinja2 import (
-    Environment, PackageLoader, ChoiceLoader, DictLoader, contextfilter
+    Environment, PackageLoader, ChoiceLoader, DictLoader
 )
 from numpy.polynomial import Polynomial
 from sympy import Symbol, Integer, Mul, poly_from_expr, Number, Poly, Expr
+
+from drudge import prod_, TensorDef, Range
 
 
 #
@@ -434,168 +435,193 @@ class DSF(object):
 #
 
 
-def create_jinja_env(add_filters, add_globals, add_tests, add_templ):
-    """Create a Jinja environment for template rendering.
+class JinjaEnv(Environment):
+    """A Jinja environment for template rendering.
 
-    This function will create a Jinja environment suitable for rendering tensor
-    expressions.  Notably the templates will be retrieved from the ``templates``
-    directory in the package.  And some filters and predicates will be added,
-    including
+    This subclass of the normal Jinja environment is designed to be suitable for
+    rendering code for tensor computations.  Notably the templates will be
+    retrieved from the ``templates`` directory in the gristmill package.  And
+    some filters and predicates will be added, including
 
-    wrap_line
-    form_indent
-    non_empty
+    - :py:meth:`wrap_line`
+    - :py:meth:`form_indent`
+    - :py:meth:`non_empty`
 
-    """
-
-    # Set the Jinja environment up.
-    env = Environment(
-        trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True,
-        loader=ChoiceLoader(
-            [PackageLoader('gristmill')] +
-            ([DictLoader(add_templ)] if add_templ is not None else [])
-        )
-    )
-
-    # Add the default filters and tests for all printers.
-    env.filters['wrap_line'] = wrap_line
-    env.filters['form_indent'] = form_indent
-    env.tests['non_empty'] = non_empty
-
-    # Add the additional globals, filters, and tests.
-    if add_globals is not None:
-        env.globals.update(add_globals)
-    if add_filters is not None:
-        env.filters.update(add_filters)
-    if add_tests is not None:
-        env.tests.update(add_tests)
-
-    return env
-
-
-def wrap_line(line, breakable_regex, line_cont,
-              base_indent=0, max_width=80, rewrap=False):
-    """Wrap the given line within the given width.
-
-    This function is going to be exported to be used by template writers in
-    Jinja as a filter.
+    which can be called inside Jinja environments or both as a method.  These
+    functionality are the ones that can be useful cross different printers.
 
     Parameters
     ----------
 
-    line
-        The line to be wrapped.
+    indent
+        The string used for indentation.  By default to four spaces.
+
+    base_indent
+        The base level of indentation for the base level.
 
     breakable_regex
         The regular expression giving the places where the line can be broke.
         The parts in the regular expression that needs to be kept can be put in
-        a capturing parentheses.
-
-    line_cont
-        The string to be put by the end of line to indicate line continuation.
-
-    base_indent
-        The base indentation for the lines.
+        a capturing parentheses.  It can be set to None to disable automatic
+        line breaking.
 
     max_width
         The maximum width of the lines to wrap the given line within.
 
-    rewrap
-        if the line is going to be rewrapped.
+    line_cont
+        The string to be put by the end of line to indicate line continuation.
 
-    Return
-    ------
-    A list of lines for the breaking of the given line.
+    cont_indent
+        The number of additional indentation for the continued lines.
+
+    add_filters
+        Additional filters to add to the environment.
+
+    add_globals
+        Additional globals to add to the environment.
+
+    add_templ
+        Additional templates to add to the environment, specially to be used
+        inside Jinja templates by the ``include`` directive.
 
     """
 
-    # First compute the width that is available for actual content.
-    avail_width = max_width - base_indent - len(line_cont)
+    def __init__(
+            self, indent=' ' * 4, base_indent=0,
+            breakable_regex=None, max_width=80, line_cont='', cont_indent=1,
+            add_filters=None, add_globals=None, add_tests=None, add_templ=None
+    ):
+        """Initialize the Jinja environment."""
 
-    # Remove all the new lines and old line-continuation and indentation for
-    # rewrapping.
-    if rewrap:
-        line = re.sub(
-            line_cont + '\\s*\n\\s*', '', line
+        # Set the Jinja environment up.
+        super().__init__(
+            trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True,
+            loader=ChoiceLoader(
+                [PackageLoader('gristmill')] +
+                ([DictLoader(add_templ)] if add_templ is not None else [])
+            )
         )
 
-    # Break the given line according to the given regular expression.
-    trunks = re.split(breakable_regex, line)
-    # Have a shallow check and issue warning.
-    for i in trunks:
-        if len(i) > avail_width:
-            print('WARNING')
-            print(
-                'Trunk {} is longer than the given width of {}'.format(
-                    i, max_width
-                )
+        self._indent = indent
+        self._base_indent = base_indent
+        self._breakable_regex = breakable_regex
+        self._max_width = max_width
+        self._line_cont = line_cont
+        self._cont_indent = cont_indent
+
+        # Add the default filters and tests for all printers.
+        self.globals['indent'] = indent
+        self.globals['base_indent'] = indent * base_indent
+        self.globals['line_cont'] = line_cont
+        self.globals['cont_indent'] = indent * cont_indent
+
+        self.filters['form_indent'] = self.form_indent
+        self.filters['wrap_line'] = self.wrap_line
+
+        self.tests['non_empty'] = self.non_empty
+
+        # Add the additional globals, filters, and tests.
+        if add_globals is not None:
+            self.globals.update(add_globals)
+        if add_filters is not None:
+            self.filters.update(add_filters)
+        if add_tests is not None:
+            self.tests.update(add_tests)
+
+    def form_indent(self, level: int, add_base=True) -> str:
+        """Form an indentation space block.
+
+        Parameters
+        ----------
+
+        level
+            The level of the indentation. The content of the indentation is
+            going to be the one set for the environment.
+
+        add_base
+            If base indent is to be added.
+
+        """
+
+        return self._indent * (
+                (self._base_indent if add_base else 0) + level
+        )
+
+    def wrap_line(self, line, level):
+        """Wrap the given line within the given width.
+
+        This function is also going to be exported to be used by template
+        writers in Jinja as a filter.
+
+        Parameters
+        ----------
+
+        line
+            The line to be wrapped.
+
+        level
+            The level for indentation for the line.
+
+        """
+
+        if self._breakable_regex is None:
+            return line
+
+        first_indent = self.form_indent(level)
+        cont_indent = self.form_indent(level + self._cont_indent)
+        max_width = self._max_width
+        line_cont = self._line_cont
+
+        # Break the given line according to the given regular expression.  The
+        # token may not necessarily be the actual token in the language.
+        tokens = re.split(self._breakable_regex, line)
+
+        # Actually break the list of trunks into lines.
+        lines = []
+        curr_line = [first_indent]
+        curr_len = len(first_indent)
+        n_tokens = len(tokens)
+        for idx, token in enumerate(tokens):
+            new_len = curr_len + len(token)
+            if_add = (
+                    len(curr_line) == 0
+                    or (idx + 1 == n_tokens and new_len <= max_width)
+                    or new_len + len(line_cont) <= max_width
             )
-            print('Longer width or finer partition can be given.')
-        continue
-
-    # Actually break the list of trunks into lines.
-    lines = []
-    curr_line = ''
-    for trunk in trunks:
-
-        if len(curr_line) == 0 or len(curr_line) + len(trunk) <= avail_width:
-            # When we are able to add the trunk to the current line. Note that
-            # when the current line is empty, the next trunk will be forced to
-            # be added.
-            curr_line += trunk
-        else:
-            # When the current line is already filled up.
-            #
-            # First dump the current line.
-            lines.append(curr_line)
-            # Then add the current trunk at the beginning of the next line. The
-            # left spaces could be striped.
-            curr_line = trunk.lstrip()
-
-        # Go on to the next trunk.
-        continue
-
-    else:
+            if if_add:
+                curr_line.append(token)
+                curr_len = new_len
+            else:
+                # When the current line is already filled up.
+                curr_line.append(line_cont)
+                lines.append(''.join(curr_line))
+                curr_line = [cont_indent]
+                curr_len = len(cont_indent)
+            # Go on to the next token.
+            continue
 
         # We need to add the trailing current line after all the loop.
-        lines.append(curr_line)
+        lines.append(''.join(curr_line))
 
-    # Before returning, we need to decorate the lines with indentation and
-    # continuation suffix.
-    decorated = [
-        ''.join([
-            ' ' * base_indent, v, line_cont if i != len(lines) - 1 else ''
-        ])
-        for i, v in enumerate(lines)
-    ]
-    return '\n'.join(decorated)
+        return '\n'.join(lines)
 
+    @staticmethod
+    def non_empty(sequence):
+        """Test if a given sequence is non-empty."""
+        return len(sequence) > 0
 
-def non_empty(sequence):
-    """Test if a given sequence is non-empty."""
-    return len(sequence) > 0
+    def indent_lines(self, lines: str, level, add_base=True):
+        """Indent the lines in the given string.
 
+        This is mostly for usage inside Python script.  For the problem of base
+        indentation, we can either use :py:meth:`form_indent` for each line in
+        the template when it is convenient to do so, or can be just form
+        relative indentation and use this method to decorate all the lines from
+        the template.
 
-@contextfilter
-def form_indent(eval_ctx, num: int) -> str:
-    """Form an indentation space block.
+        """
 
-    Parameters
-    ----------
-
-    eval_ctx
-        The evaluation context.
-    num
-        The number of the indentation. The size of the indentation is going to
-        be read from the context by attribute ``indent_size``.
-
-    Return
-    ------
-
-    A block of white spaces.
-
-    """
-
-    return ' ' * (
-        eval_ctx['indent_size'] * (num + eval_ctx['global_indent'])
-    )
+        indent = self.form_indent(level, add_base=add_base)
+        return '\n'.join(
+            indent + i for i in lines.splitlines()
+        )
