@@ -206,6 +206,9 @@ class BasePrinter(abc.ABC):
             size of the range.  We also have ``lower_expr``, ``upper_expr``, and
             ``size_expr`` for the unprinted expression of them.
 
+        n_exts
+            The number of external indices for the LHS.
+
         terms
             A list of terms for the tensor, with each entry being a simple
             namespace with keys,
@@ -253,6 +256,7 @@ class BasePrinter(abc.ABC):
             base.label if isinstance(base, IndexedBase) else base
         )
         ctx.indices = self._form_indices_ctx(tensor_def.exts)
+        ctx.n_exts = len(ctx.indices)
 
         # The stack keeping track of the external and internal indices for range
         # resolution.
