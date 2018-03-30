@@ -689,8 +689,10 @@ class BasePrinter(abc.ABC):
         - :py:meth:`print_comp_term`
         - :py:meth:`print_out_of_use`
 
-        to generate code for each of these events.  This framework can be useful
-        for basically all programming languages common in scientific computing.
+        to generate code for each of these events.  None can always be returned
+        to skip the code generation for a particle event.  This framework can be
+        useful for basically all programming languages common in scientific
+        computing.
 
         """
         events = self.form_events(eval_seq, origs)
@@ -713,7 +715,8 @@ class BasePrinter(abc.ABC):
                 if cls not in dispatch:
                     raise ValueError('Invalid event', event)
                 code = dispatch[cls](event)
-                execs.append(code)
+                if code is not None:
+                    execs.append(code)
             continue
 
         if separate_decls:
@@ -731,7 +734,7 @@ class BasePrinter(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def print_before_comp(self, event: BeforeComp) -> str:
+    def print_before_comp(self, event: BeforeComp) -> typing.Optional[str]:
         """Print the code before the first computation of an intermediate.
 
         Normally, the tensor to be computed needs to be initialized to zero
@@ -741,7 +744,7 @@ class BasePrinter(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def print_comp_term(self, event: CompTerm) -> str:
+    def print_comp_term(self, event: CompTerm) -> typing.Optional[str]:
         """Print the computation of a tensor term.
 
         The code should add the term to the target as well.
@@ -749,7 +752,7 @@ class BasePrinter(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def print_out_of_use(self, event: OutOfUse) -> str:
+    def print_out_of_use(self, event: OutOfUse) -> typing.Optional[str]:
         """Print the code to execute after an intermediate is out-of-use.
 
         Typically, the memory associated with the intermediate tensor can be
