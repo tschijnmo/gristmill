@@ -4,7 +4,6 @@ import abc
 import collections
 import functools
 import itertools
-import textwrap
 import types
 import typing
 
@@ -1405,47 +1404,96 @@ class EinsumPrinter(BasePrinter):
     code based on the NumPy ``einsum`` function.  For contractions supported,
     the code from this printer can also be used for Tensorflow.
 
+    Parameters
+    ----------
+
+    zeros
+        The name of the constructor for an array of zeroes.
+
+    dtype
+        The data type for the construction of tensors.  A value of None will
+        give no ``dtype`` argument.
+
+    einsum
+        The name of the einsum function.
+
     """
 
-    def __init__(self, **kwargs):
+    def __init__(
+            self, zeros='zeros', dtype=None, einsum='einsum', extr_unary=True,
+            add_globals=None, **kwargs
+    ):
         """Initialize the printer.
-
-        All keyword arguments are forwarded to the base class
-        :py:class:`BasePrinter`.
         """
 
-        super().__init__(PythonPrinter(), **kwargs)
+        globals_ = {
+            'einsum': einsum
+        }
+        if add_globals is not None:
+            globals_.update(add_globals)
 
-    def print_eval(
-            self, tensor_defs: typing.Iterable[TensorDef],
-            base_indent=4
-    ) -> str:
-        """Print the evaluation of the tensor definitions.
-
-        Parameters
-        ----------
-
-        tensor_defs
-            The tensor definitions for the evaluations.
-
-        base_indent
-            The base indent of the generated code.
-
-        Return
-        ------
-
-        The code for evaluations.
-
-        """
-
-        ctxs = []
-        for tensor_def in tensor_defs:
-            ctx = self.transl(tensor_def)
-            ctxs.append(ctx)
-            continue
-
-        code = '\n'.join(
-            self.render('einsum', i) for i in ctxs
+        super().__init__(
+            PythonPrinter(), extr_unary=extr_unary, add_globals=globals_,
+            **kwargs
         )
 
-        return textwrap.indent(code, ' ' * base_indent)
+        self._zeros = zeros
+        self._dtype = dtype
+        self._einsum = einsum
+
+    def print_decl(self, event: TensorDecl):
+        """Do nothing.
+        """
+        return None
+
+    def print_begin_body(self, event: BeginBody):
+        """Do nothing.
+        """
+        return None
+
+    def print_before_comp(self, event: BeforeComp):
+        """Initialize the tensor to zero.
+        """
+        ctx = event.comput.ctx
+
+        if len(ctx.indices) > 0:
+            shape = '({})'.format(', '.join(
+                i.size for i in ctx.indices
+            ))
+            if self._dtype is None:
+                args = shape
+            else:
+                args = ', '.join([
+                    shape, 'dtype={}'.format(self._dtype)
+                ])
+
+            lhs = '{}({})'.format(self._zeros, args)
+        else:
+            lhs = '0'
+
+        return self._env.indent_lines(''.join([
+            ctx.base, ' = ', lhs
+        ]))
+
+    def print_comp_term(self, event: CompTerm):
+        """Print the evaluation of a term to be added to the target.
+        """
+
+        ctx = event.comput.ctx
+        ctx.term = event.term_ctx
+        code = self.render('einsum', ctx)
+        del ctx.term
+
+        return self._env.indent_lines(code, 0)
+
+    def print_out_of_use(self, event: OutOfUse):
+        """Remove an used intermediate tensor.
+        """
+        return self._env.indent_lines('del {}'.format(
+            event.comput.ctx.base
+        ))
+
+    def print_end_body(self, event: EndBody):
+        """Do nothing.
+        """
+        return None

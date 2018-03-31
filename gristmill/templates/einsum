@@ -1,14 +1,11 @@
-{{ base }} = (
-{% for term in terms %}
-    {%+ if not loop.first or term.phase != '+' -%}
-    {{ term.phase }} {% endif -%}
-    {% if term.numerator != '1' -%}
-    {{ term.numerator }} * {% endif -%}
-    einsum("{% for factor in term.indexed_factors -%}
-    {% for i in factor.indices %}{{ i.index }}{% endfor -%}
-    {% if not loop.last %},{% endif -%}
-    {% endfor %}->{% for i in indices %}{{ i.index }}{% endfor %}", {% for factor in term.indexed_factors -%}
-    {{ factor.base }}{% if not loop.last %}, {% endif %}{% endfor %}){% if term.denominator != '1' -%}
-    {{ ' /' }} {{ term.denominator }}{% endif %}{{ '' }}
-{% endfor %}
-)
+{{ base }} {{ term.phase }}= {% if term.numerator != '1' %}
+{{ term.numerator }} * {% endif %}
+{{ einsum }}(
+{{ cont_indent | form_indent }}"{% for factor in term.indexed_factors %}
+{% for i in factor.indices %}{{ i.index }}{% endfor %}
+{% if not loop.last %},{% endif %}
+{% endfor %}->{% for i in indices %}{{ i.index }}{% endfor %}", {% for factor in term.indexed_factors %}
+{{ factor.base }}{% if not loop.last %}, {% endif %}{% endfor %}
+
+){% if term.denominator != '1' -%}
+{{ ' /' }} {{ term.denominator }}{% endif %}
