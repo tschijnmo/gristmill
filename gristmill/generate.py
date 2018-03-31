@@ -170,31 +170,44 @@ class EndBody:
 
 
 class BasePrinter(abc.ABC):
-    """The base class for tensor printers.
+    r"""The base class for printers for tensor computations.
+
+    This base class of tensor computers aims to support the kind of operations
+    that is common to all kinds of code generation for different environments.
+
+    Parameters
+    ----------
+
+    scal_printer
+        The SymPy printer for scalar quantities.
+
+    indexed_proc_cb
+        It is going to be called with context nodes with ``base`` and
+        ``indices`` (in both the root and for each indexed factors, as described
+        in :py:meth:`transl`) to do additional processing.  For most tasks,
+        :py:func:`mangle_base` can be helpful.
+
+    extr_unary
+        Enable extraction of unary functions over a tensor.  When it is set, an
+        application of a unary function over tensor components, like
+        :math:`\sin(t[i, j])` will be recast into something like
+        :math:`\sin(t)[i, j]`.  This is generally for environments with
+        automatic broadcasting of unary function onto tensor components, like
+        NumPy.  Note that this can be *very inefficient** for printers accessing
+        tensor components directly in computation, since the unary function may
+        be applied to the entire tensor for each component access.
+
+    kwargs
+        All the keyword arguments are forwarded to :py:cls:`utils.JinjaEnv`
+        constructor.
+
     """
 
     def __init__(
             self, scal_printer: Printer, indexed_proc_cb=lambda x: None,
-            **kwargs
+            extr_unary=False, **kwargs
     ):
-        """Initializes a base printer.
-
-        Parameters
-        ----------
-
-        scal_printer
-            The SymPy printer for scalar quantities.
-
-        indexed_proc_cb
-            It is going to be called with context nodes with ``base`` and
-            ``indices`` (in both the root and for each indexed factors, as
-            described in :py:meth:`transl`) to do additional processing.  For
-            most tasks, :py:func:`mangle_base` can be helpful.
-
-        kwargs
-            All the keyword arguments are forwarded to :py:cls:`utils.JinjaEnv`
-            constructor.
-
+        """Initialize a base printer.
         """
 
         env = JinjaEnv(**kwargs)
@@ -202,6 +215,7 @@ class BasePrinter(abc.ABC):
         self._env = env
         self._scal_printer = scal_printer
         self._indexed_proc = indexed_proc_cb
+        self._extr_unary = extr_unary
 
     #
     # Translation to rendering contexts
@@ -225,8 +239,9 @@ class BasePrinter(abc.ABC):
             ``range`` are present to give the printed form of the index and the
             range object that it is over. For convenience, ``lower``, ``upper``,
             and ``size`` have the printed form of lower/upper bounds and the
-            size of the range.  We also have ``lower_expr``, ``upper_expr``, and
-            ``size_expr`` for the unprinted expression of them.
+            size of the range.  We also have ``index_expr``, ``lower_expr``,
+            ``upper_expr``, and ``size_expr`` for the unprinted expression of
+            them.
 
         n_exts
             The number of external indices for the LHS.
@@ -350,13 +365,13 @@ class BasePrinter(abc.ABC):
             other_factors_expr = []
             term_ctx.other_factors_expr = other_factors_expr
             for factor in factors:
-
-                if isinstance(factor, Indexed):
+                base, indices = self._extr_base_indices(factor)
+                if indices is not None:
                     factor_ctx = types.SimpleNamespace()
-                    factor_ctx.base = self._print_scal(factor.base.label)
+                    factor_ctx.base = self._print_scal(base)
                     factor_ctx.indices = self._form_indices_ctx((
                         (i, try_resolve_range(i, indices_dict, resolvers))
-                        for i in factor.indices
+                        for i in indices
                     ), enforce=False)
                     indexed_factors.append(factor_ctx)
                 else:
@@ -445,7 +460,7 @@ class BasePrinter(abc.ABC):
             res.append(types.SimpleNamespace(
                 index=self._print_scal(index), range=range_,
                 lower=lower, upper=upper, size=size,
-                lower_expr=lower_expr, upper_expr=upper_expr,
+                index_expr=index, lower_expr=lower_expr, upper_expr=upper_expr,
                 size_expr=size_expr
             ))
             continue
@@ -455,6 +470,31 @@ class BasePrinter(abc.ABC):
     def _print_scal(self, expr: Expr):
         """Print a scalar."""
         return self._scal_printer.doprint(expr)
+
+    def _extr_base_indices(self, factor):
+        """Attempt to extract base and indices from a factor.
+        """
+
+        # Direct extraction for indexed quantities.
+        if isinstance(factor, Indexed):
+            return factor.base.label, factor.indices
+
+        # Attempt to extract unary transformation only when it is allowed.
+        if not self._extr_unary:
+            return factor, None
+
+        indices = []
+
+        def _replace_indexed(*args):
+            """Replace indexed quantity in expression."""
+            indices.append(args[1:])
+            return args[0].args[0]
+
+        repled = factor.replace(Indexed, _replace_indexed)
+        if len(indices) > 1:
+            return factor, None
+        else:
+            return repled, indices[0]
 
     #
     # Formation of event lists from computations
@@ -1395,33 +1435,6 @@ class EinsumPrinter(BasePrinter):
         ctxs = []
         for tensor_def in tensor_defs:
             ctx = self.transl(tensor_def)
-            for i in ctx.terms:
-
-                for j in i.other_factors_expr:
-                    indices = []
-
-                    def _replace_indexed(*args):
-                        """Replace indexed quantity in expression."""
-                        indices.append(args[1:])
-                        return args[0].args[0]
-
-                    repled = j.replace(Indexed, _replace_indexed)
-                    if len(indices) > 1:
-                        raise ValueError(
-                            'Expression too complicated for einsum', j
-                        )
-
-                    indices = indices[0]
-                    factor_ctx = types.SimpleNamespace()
-                    factor_ctx.base = self._print_scal(repled)
-                    # Einsum does not really depend on the ranges.
-                    factor_ctx.indices = self._form_indices_ctx((
-                        (i, None) for i in indices
-                    ), enforce=False)
-                    i.indexed_factors.append(factor_ctx)
-
-                continue
-
             ctxs.append(ctx)
             continue
 
