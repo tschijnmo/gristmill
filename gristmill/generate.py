@@ -1069,7 +1069,7 @@ class NaiveCodePrinter(BasePrinter):
         ctx = event.comput.ctx
         ctx.term = event.term_ctx
         code = self.render('naiveterm', ctx)
-        del ctx.terms
+        del ctx.term
         return code
 
 
@@ -1311,25 +1311,31 @@ class FortranPrinter(NaiveCodePrinter):
         """
 
         explicit_bounds = self._explicit_bounds
-        if self._heap_interm and event.comput.is_interm:
-            ctx = event.comput.ctx
-            bounds = self._form_bounds(ctx, explicit_bounds)
-            alloc = ''.join([
-                self._env.form_indent(0),
-                'allocate(', ctx.base, '(', bounds, '))'
-            ])
-        else:
-            alloc = ''
+        indent = self._env.form_indent(0)
 
         zero_out = super().print_before_comp(event)
 
-        return '\n'.join([alloc, zero_out])
+        if_alloc = (
+                self._heap_interm and event.comput.is_interm
+                and len(event.comput.ctx.indices) > 0
+        )
+        if if_alloc:
+            ctx = event.comput.ctx
+            bounds = self._form_bounds(ctx, explicit_bounds)
+            alloc = ''.join([
+                indent, 'allocate(', ctx.base, '(', bounds, '))'
+            ])
+            return '\n'.join([alloc, zero_out])
+        else:
+            return zero_out
 
     def print_out_of_use(self, event: OutOfUse):
         """Print the deallocation command.
         """
         assert event.comput.is_interm
         ctx = event.comput.ctx
+        if not self._heap_interm or len(ctx.indices) == 0:
+            return None
 
         return ''.join([
             self._env.form_indent(0), 'deallocate(', ctx.base, ')'
