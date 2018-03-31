@@ -487,7 +487,7 @@ class JinjaEnv(Environment):
     """
 
     def __init__(
-            self, indent=' ' * 4, base_indent=0,
+            self, indent=' ' * 4, base_indent=1,
             breakable_regex=None, max_width=80, line_cont='', cont_indent=1,
             add_filters=None, add_globals=None, add_tests=None, add_templ=None
     ):
@@ -511,9 +511,9 @@ class JinjaEnv(Environment):
 
         # Add the default filters and tests for all printers.
         self.globals['indent'] = indent
-        self.globals['base_indent'] = indent * base_indent
+        self.globals['base_indent'] = base_indent
         self.globals['line_cont'] = line_cont
-        self.globals['cont_indent'] = indent * cont_indent
+        self.globals['cont_indent'] = cont_indent
 
         self.filters['form_indent'] = self.form_indent
         self.filters['wrap_line'] = self.wrap_line
@@ -610,7 +610,7 @@ class JinjaEnv(Environment):
         """Test if a given sequence is non-empty."""
         return len(sequence) > 0
 
-    def indent_lines(self, lines: str, level, add_base=True):
+    def indent_lines(self, lines: str, level=0, add_base=True):
         """Indent the lines in the given string.
 
         This is mostly for usage inside Python script.  For the problem of base
