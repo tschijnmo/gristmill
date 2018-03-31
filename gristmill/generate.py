@@ -1129,50 +1129,48 @@ def print_fortran_indexed(base, indices):
     )
 
 
-class FortranPrinter(ImperativeCodePrinter):
+class FortranPrinter(NaiveCodePrinter):
     """Fortran code printer.
 
-    In this class, just some parameters for the *new* Fortran programming
-    language is fixed relative to the base :py:class:`ImperativeCodePrinter`.
+    This printer attempts to generate naive Fortran code for tensor
+    computations.  All the contractions and additions are evaluated by naive
+    loops.  The resulted code can be put inside a Fortran ``BLOCK`` construct.
+
+    Parameters
+    ----------
+
+    openmp
+        If the evaluation is to have OpenMp parallelization.
+
+    print_indexed_cb
+        The callback to print tensor components.
+
+    default_type
+        The default data type for tensor declarations.
+
+    heap_interm
+        If intermediates are to be allocated on heap by default.
+
+    explicit_bounds
+        If the lower and upper bounds of the tensors are to be explicitly
+        written in declarations and allocations.
+
     """
 
     def __init__(
-            self, openmp=True, print_indexed_cb=print_fortran_indexed,
+            self, print_indexed_cb=print_fortran_indexed, openmp=True,
             default_type='real', heap_interm=True, explicit_bounds=False,
             **kwargs
     ):
-        """Initialize a Fortran code printer.
+        """Initialize a naive Fortran code printer.
 
-        The printer class, the name of the template, and the line continuation
-        symbol will be set automatically.
-
-        Parameters
-        ----------
-
-        openmp
-            If the evaluation is to be parallelized by OpenMP pragma.
-
-        print_indexed_cb
-            The callback to print tensor components.
-
-        default_type
-            The default data type for tensor declarations.
-
-        heap_interm
-            If intermediates are to be allocated on heap by default.
-
-        explicit_bounds
-            If the lower and upper bounds of the tensors are to be explicitly
-            written in declarations and allocations.
 
         """
 
         if openmp:
             add_templ = {
-                'tensor_prelude': _FORTRAN_OMP_PARALLEL_PRELUDE,
-                'tensor_finale': _FORTRAN_OMP_PARALLEL_FINALE,
-                'init_prelude': _FORTRAN_OMP_INIT_PRELUDE,
-                'init_finale': _FORTRAN_OMP_INIT_FINALE,
+                'zero_prelude': _FORTRAN_OMP_ZERO_PRELUDE,
+                'zero_finale': _FORTRAN_OMP_ZERO_FINALE,
                 'term_prelude': _FORTRAN_OMP_TERM_PRELUDE,
                 'term_finale': _FORTRAN_OMP_TERM_FINALE,
             }
@@ -1181,156 +1179,18 @@ class FortranPrinter(ImperativeCodePrinter):
 
         super().__init__(
             FCodePrinter(settings={'source_format': 'free'}),
-            print_indexed_cb=print_indexed_cb,
-            line_cont='&',
-            add_filters={
-                'form_loop_beg': self._form_fortran_loop_beg,
-                'form_loop_end': self._form_fortran_loop_end,
-            }, add_globals={
-                'zero_literal': '0.0'
-            }, add_templ=add_templ,
-            **kwargs
+            print_indexed_cb=print_indexed_cb, line_cont='&',
+            add_templ=add_templ, **kwargs
         )
 
+        self._openmp = openmp
         self._default_type = default_type
         self._heap_interm = heap_interm
         self._explicit_bounds = explicit_bounds
 
-        base_indent_size = int(self._env.globals['global_indent']) * int(
-            self._env.globals['indent_size']
-        )
-        self._base_indent = ' ' * base_indent_size
-
-    def doprint(self, eval_seq, origs=None, separate_decls=False):
-        """Make full printing of the evaluation steps.
-        """
-        events = self.form_events(eval_seq, origs)
-        decls = []
-        execs = []
-
-        for event in events:
-            if isinstance(event, _TensorDecl):
-                decls.append(self.print_decl(
-                    event.comput.ctx, allocatable=self._heap_interm
-                ))
-            elif isinstance(event, _BeforeCompute):
-                comput = event.comput
-                ctx = comput.ctx
-                if self._heap_interm and comput.is_interm and len(
-                        ctx.indices
-                ) > 0:
-                    execs.append(self.print_alloc(ctx))
-            elif isinstance(event, _TensorComput):
-                execs.append(self.print_eval(event.ctx))
-            elif isinstance(event, _NoLongerInUse):
-                ctx = event.comput.ctx
-                if self._heap_interm and len(ctx.indices) > 0:
-                    execs.append(self.print_dealloc(ctx))
-            else:
-                assert False  # Unknown event.
-
-        if separate_decls:
-            return '\n'.join(decls), '\n'.join(execs)
-        else:
-            return '\n'.join(itertools.chain(decls, execs))
-
-    def print_decl_eval(
-            self, tensor_defs: typing.Iterable[TensorDef],
-            decl_type=None, explicit_bounds=None
-    ) -> typing.Tuple[typing.List[str], typing.List[str]]:
-        """Print Fortran declarations and evaluations of tensor definitions.
-
-        Parameters
-        ----------
-
-        tensor_defs
-            The tensor definitions to print.
-
-        decl_type
-            The type to be declared for the tensors.  By default, the value set
-            for the printer will be used.
-
-        explicit_bounds
-            If the lower and upper bounds should be written explicitly in the
-            declaration.  By default, the value set for the printer will be
-            used.
-
-        Return
-        ------
-
-        decls
-            The list of declaration strings.
-
-        evals
-            The list of evaluation strings.
-
-        """
-
-        if decl_type is None:
-            decl_type = self._default_type
-        if explicit_bounds is None:
-            explicit_bounds = self._explicit_bounds
-
-        decls = []
-        evals = []
-
-        for tensor_def in tensor_defs:
-            ctx = self.transl(tensor_def)
-            decls.append(self.print_decl(ctx, decl_type, explicit_bounds))
-            evals.append(self.print_eval(ctx))
-            continue
-
-        return decls, evals
-
-    def print_decl(
-            self, ctx, decl_type=None, explicit_bounds=None, allocatable=False
-    ):
-        """Print the Fortran declaration of the LHS of a tensor definition.
-
-        A string will be returned that forms the naive declaration of the
-        given tensor as local variables.
-
-        """
-
-        decl_type = self._default_type if decl_type is None else decl_type
-        explicit_bounds = (
-            self._explicit_bounds if explicit_bounds is None else
-            explicit_bounds
-        )
-
-        if len(ctx.indices) > 0:
-            if allocatable:
-                bounds = ', '.join(':' for _ in ctx.indices)
-            else:
-                bounds = self._form_bounds(ctx, explicit_bounds)
-            sizes_decl = ', dimension({})'.format(bounds)
-            if allocatable:
-                sizes_decl += ', allocatable'
-        else:
-            sizes_decl = ''
-
-        return ''.join([
-            self._base_indent, decl_type, sizes_decl, ' :: ', ctx.base
-        ])
-
-    def print_alloc(self, ctx, explicit_bounds=None):
-        """Print the allocation statement.
-        """
-        explicit_bounds = (
-            self._explicit_bounds if explicit_bounds is None else
-            explicit_bounds
-        )
-        bounds = self._form_bounds(ctx, explicit_bounds)
-        return ''.join([
-            self._base_indent, 'allocate(', ctx.base, '(', bounds, '))'
-        ])
-
-    def print_dealloc(self, ctx):
-        """Print the deallocation command.
-        """
-        return ''.join([
-            self._base_indent, 'deallocate(', ctx.base, ')'
-        ])
+    #
+    # Utilities.
+    #
 
     def _form_bounds(self, ctx, explicit_bounds):
         """Form the string for array bounds.
@@ -1346,7 +1206,11 @@ class FortranPrinter(ImperativeCodePrinter):
         """
         return self._print_scal(lower + Integer(1))
 
-    def _form_fortran_loop_beg(self, ctx):
+    #
+    # For base naive printer.
+    #
+
+    def form_loop_open(self, ctx):
         """Form the loop beginning for Fortran."""
 
         lower = self._print_lower(ctx.lower_expr)
@@ -1355,27 +1219,106 @@ class FortranPrinter(ImperativeCodePrinter):
             index=ctx.index, lower=lower, upper=ctx.upper
         )
 
-    @staticmethod
-    def _form_fortran_loop_end(_):
+    def form_loop_close(self, _):
         """Form the loop ending for Fortran."""
         return 'end do'
 
+    #
+    # For actual base printer.
+    #
 
-_FORTRAN_OMP_PARALLEL_PRELUDE = """\
+    def print_decl(self, event: TensorDecl):
+        """Print the Fortran declaration of the LHS of a tensor definition.
+
+        A string will be returned that forms the naive declaration of the
+        given tensor as local variables.
+
+        """
+
+        decl_type = self._default_type
+        explicit_bounds = self._explicit_bounds
+        heap_interm = self._heap_interm
+        ctx = event.comput.ctx
+
+        if len(ctx.indices) > 0:
+            if heap_interm:
+                bounds = ', '.join(':' for _ in ctx.indices)
+            else:
+                bounds = self._form_bounds(ctx, explicit_bounds)
+            sizes_decl = ', dimension({})'.format(bounds)
+            if heap_interm:
+                sizes_decl += ', allocatable'
+        else:
+            sizes_decl = ''
+
+        return ''.join([
+            self._env.form_indent(0), decl_type, sizes_decl, ' :: ', ctx.base
+        ])
+
+    def print_begin_body(self, event: BeginBody):
+        """Start the OpenMP environment if enabled.
+        """
+        if self._openmp:
+            return _FORTRAN_OMP_START
+        else:
+            return None
+
+    def print_before_comp(self, event: BeforeComp):
+        """Print code before computation of a tensor.
+
+        In addition from zeroing out the tensor, for intermediates, they are
+        also going to be allocated here on the heap.
+        """
+
+        explicit_bounds = self._explicit_bounds
+        if self._heap_interm and event.comput.is_interm:
+            ctx = event.comput.ctx
+            bounds = self._form_bounds(ctx, explicit_bounds)
+            alloc = ''.join([
+                self._env.form_indent(0),
+                'allocate(', ctx.base, '(', bounds, '))'
+            ])
+        else:
+            alloc = ''
+
+        zero_out = super().print_before_comp(event)
+
+        return '\n'.join([alloc, zero_out])
+
+    def print_out_of_use(self, event: OutOfUse):
+        """Print the deallocation command.
+        """
+        assert event.comput.is_interm
+        ctx = event.comput.ctx
+
+        return ''.join([
+            self._env.form_indent(0), 'deallocate(', ctx.base, ')'
+        ])
+
+    def print_end_body(self, event: EndBody):
+        """Close OpenMP parallel body when enabled.
+        """
+        if self._openmp:
+            return _FORTRAN_OMP_END
+        else:
+            return None
+
+
+_FORTRAN_OMP_START = """\
 !$omp parallel default(shared)
 """
 
-_FORTRAN_OMP_PARALLEL_FINALE = "!$omp end parallel\n"
+_FORTRAN_OMP_END = "!$omp end parallel\n"
 
-_FORTRAN_OMP_INIT_PRELUDE = """\
-{% if n_ext > 0 %}
+_FORTRAN_OMP_ZERO_PRELUDE = """\
+{% if n_exts > 0 %}
 !$omp do schedule(static)
 {% else %}
 !$omp single
 {% endif %}
 """
-_FORTRAN_OMP_INIT_FINALE = """\
-{% if n_ext > 0 %}
+_FORTRAN_OMP_ZERO_FINALE = """\
+{% if n_exts > 0 %}
 !$omp end do
 {% else %}
 !$omp end single
@@ -1383,7 +1326,7 @@ _FORTRAN_OMP_INIT_FINALE = """\
 """
 
 _FORTRAN_OMP_TERM_PRELUDE = """\
-{% if n_ext > 0 %}
+{% if n_exts > 0 %}
 !$omp do schedule(static)
 {% else %}
 {% if (term.sums | length) > 0 %}
@@ -1395,7 +1338,7 @@ _FORTRAN_OMP_TERM_PRELUDE = """\
 """
 
 _FORTRAN_OMP_TERM_FINALE = """\
-{% if (n_ext + (term.sums | length)) > 0 %}
+{% if (n_exts + (term.sums | length)) > 0 %}
 !$omp end do
 {% else %}
 !$omp end single
