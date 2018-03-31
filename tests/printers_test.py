@@ -3,6 +3,7 @@
 
 import subprocess
 import textwrap
+from unittest.mock import patch
 
 import pytest
 from sympy import Symbol, IndexedBase, symbols
@@ -102,9 +103,10 @@ def test_base_printer_ctx(simple_drudge, colourful_tensor):
     tensor = colourful_tensor
 
     # Process indexed names by mangling the base name.
-    printer = BasePrinter(PythonPrinter(), mangle_base(
-        lambda base, indices: base + str(len(indices))
-    ))
+    with patch.object(BasePrinter, '__abstractmethods__', frozenset()):
+        printer = BasePrinter(PythonPrinter(), mangle_base(
+            lambda base, indices: base + str(len(indices))
+        ))
     ctx = printer.transl(tensor)
 
     def check_range(ctx, index):
@@ -170,7 +172,8 @@ def test_events_generation(eval_seq_deps):
     """Test the event generation facility in the base printer."""
     eval_seq, origs = eval_seq_deps
 
-    printer = BasePrinter(PythonPrinter())
+    with patch.object(BasePrinter, '__abstractmethods__', frozenset()):
+        printer = BasePrinter(PythonPrinter())
     events = printer.form_events(eval_seq, origs)
 
     i1 = IndexedBase('I1')
