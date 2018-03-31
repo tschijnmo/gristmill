@@ -4,7 +4,7 @@ Public names are going to be imported here.
 """
 
 from .generate import (
-    BasePrinter, ImperativeCodePrinter, CCodePrinter, FortranPrinter,
+    BasePrinter, NaiveCodePrinter, CCodePrinter, FortranPrinter,
     EinsumPrinter, mangle_base
 )
 from .optimize import optimize, verify_eval_seq, ContrStrat, RepeatedTermsStrat
@@ -20,7 +20,7 @@ __all__ = [
     'get_flop_cost',
     'BasePrinter',
     'mangle_base',
-    'ImperativeCodePrinter',
+    'NaiveCodePrinter',
     'CCodePrinter',
     'FortranPrinter',
     'EinsumPrinter'
