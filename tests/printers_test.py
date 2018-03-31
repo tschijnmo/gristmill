@@ -2,7 +2,6 @@
 """
 
 import subprocess
-import textwrap
 from unittest.mock import patch
 
 import pytest
@@ -409,7 +408,8 @@ end program main
 
 
 def test_einsum_printer(simple_drudge):
-    """Test the functionality of the einsum printer."""
+    """Test the basic functionality of the einsum printer.
+    """
 
     dr = simple_drudge
     p = dr.names
@@ -423,23 +423,20 @@ def test_einsum_printer(simple_drudge):
         x[a, b], u[b, a] ** 2 - 2 * u[a, c] * v[c, b] / 3
     )
 
-    printer = EinsumPrinter()
-    code = printer.print_eval([tensor])
+    printer = EinsumPrinter(base_indent=0)
+    code = printer.doprint([tensor])
 
-    for line in code.splitlines():
-        assert line[:4] == ' ' * 4
-        continue
-
-    exec_code = _EINSUM_DRIVER_CODE.format(code=textwrap.dedent(code))
+    exec_code = _EINSUM_DRIVER_CODE.format(code=code)
     env = {}
     exec(exec_code, env, {})
     assert env['diff'] < 1.0E-5  # Arbitrary delta.
 
 
 _EINSUM_DRIVER_CODE = """
-from numpy import einsum, array
+from numpy import einsum, array, zeros
 from numpy import linalg
 
+n = 2
 u = array([[1.0, 2], [3, 4]])
 v = array([[1.0, 0], [0, 1]])
 
@@ -448,5 +445,44 @@ v = array([[1.0, 0], [0, 1]])
 expected = (u ** 2).transpose() - (2.0 / 3) * u @ v
 global diff
 diff = linalg.norm(x - expected)
+
+"""
+
+
+def test_full_einsum_printer(eval_seq_deps):
+    """Test the full functionality of the einsum printer.
+    """
+    eval_seq, origs = eval_seq_deps
+    printer = EinsumPrinter(base_indent=0)
+    code = printer.doprint(eval_seq, origs)
+    exec_code = _FULL_EINSUM_DRIVER_CODE.format(eval=code)
+    env = {}
+    exec(exec_code, env, {})
+    assert env['diff1'] < 1.0E-5
+    assert env['diff2'] < 1.0E-5
+
+
+_FULL_EINSUM_DRIVER_CODE = """
+from numpy import zeros, einsum, trace
+from numpy.random import rand
+from numpy import linalg
+
+n = 10
+
+X = rand(n, n)
+Y = rand(n, n)
+
+{eval}
+
+XY = X @ Y
+YX = Y @ X
+tr = trace(XY)
+expected_r1 = XY * tr + YX
+expected_r2 = XY * 2
+
+global diff1
+global diff2
+diff1 = linalg.norm((R1 - expected_r1) / expected_r1)
+diff2 = linalg.norm((R2 - expected_r2) / expected_r2)
 
 """
