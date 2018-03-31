@@ -287,17 +287,15 @@ def _test_fortran_code(code, dir):
     return True
 
 
-def test_basic_fortran_printer(colourful_tensor, tmpdir):
-    """Test the basic functionality of the Fortran printer."""
+def test_fortran_colourful(colourful_tensor, tmpdir):
+    """Test the Fortran printer for colour tensor computations."""
 
     tensor = colourful_tensor
 
     printer = FortranPrinter()
-    decls, evals = printer.print_decl_eval([tensor])
-    assert len(decls) == 1
-    assert len(evals) == 1
+    evals = printer.doprint([tensor])
 
-    code = _FORTRAN_BASIC_TEST_CODE.format(decl=decls[0], eval=evals[0])
+    code = _FORTRAN_BASIC_TEST_CODE.format(evals=evals)
     assert _test_fortran_code(code, tmpdir)
 
 
@@ -312,15 +310,15 @@ integer :: a, b, c
 
 real, dimension(n, n) :: u
 real, dimension(n, n) :: v
+real, dimension(n, n) :: x
 
-{decl}
 real, dimension(n, n) :: diag
 real, dimension(n, n) :: expected
 
 call random_number(u)
 call random_number(v)
 
-{eval}
+{evals}
 
 diag = 0
 do a = 1, n
@@ -381,16 +379,18 @@ end block
 
 block
 real, dimension(n, n) :: xy
+real, dimension(n, n) :: yx
 real :: trace
 
 xy = matmul(x, y)
+yx = matmul(y, x)
 
 trace = 0
 do a = 1, n
     trace = trace + xy(a, a)
 end do
 
-expected_r1 = xy * trace
+expected_r1 = xy * trace + yx
 expected_r2 = xy * 2
 
 end block
