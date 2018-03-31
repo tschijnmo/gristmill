@@ -12,7 +12,7 @@ from sympy.printing.python import PythonPrinter
 from drudge import Drudge, Range
 from gristmill import BasePrinter, FortranPrinter, EinsumPrinter, mangle_base
 from gristmill.generate import (
-    _TensorDecl, _BeforeCompute, _ComputeTerm, _NoLongerInUse
+    TensorDecl, BeginBody, BeforeComp, CompTerm, OutOfUse, EndBody
 )
 
 
@@ -186,79 +186,85 @@ def test_events_generation(eval_seq_deps):
 
     for i in [i1, i2, i3]:
         event = events.pop()
-        assert isinstance(event, _TensorDecl)
+        assert isinstance(event, TensorDecl)
         assert event.comput.target == i
         continue
 
     event = events.pop()
-    assert isinstance(event, _BeforeCompute)
+    assert isinstance(event, BeginBody)
+
+    event = events.pop()
+    assert isinstance(event, BeforeComp)
     assert event.comput.target == i1
 
     event = events.pop()
-    assert isinstance(event, _ComputeTerm)
+    assert isinstance(event, CompTerm)
     assert event.comput.target == i1
     assert event.term_idx == 0
 
     # I1 drives I3.
     event = events.pop()
-    assert isinstance(event, _BeforeCompute)
+    assert isinstance(event, BeforeComp)
     assert event.comput.target == i3
 
     event = events.pop()
-    assert isinstance(event, _ComputeTerm)
+    assert isinstance(event, CompTerm)
     assert event.comput.target == i3
     assert event.term_idx == 0
 
     # I3, I1, drives the first term of R1.
     event = events.pop()
-    assert isinstance(event, _BeforeCompute)
+    assert isinstance(event, BeforeComp)
     assert event.comput.target == r1
 
     event = events.pop()
-    assert isinstance(event, _ComputeTerm)
+    assert isinstance(event, CompTerm)
     assert event.comput.target == r1
     assert event.term_idx == 0
 
     # Now I3 should be out of dependency.
     event = events.pop()
-    assert isinstance(event, _NoLongerInUse)
+    assert isinstance(event, OutOfUse)
     assert event.comput.target == i3
 
     # Another one driven by I1.
     event = events.pop()
-    assert isinstance(event, _BeforeCompute)
+    assert isinstance(event, BeforeComp)
     assert event.comput.target == r2
 
     event = events.pop()
-    assert isinstance(event, _ComputeTerm)
+    assert isinstance(event, CompTerm)
     assert event.comput.target == r2
     assert event.term_idx == 0
 
     # I1 no longer needed any more.
     event = events.pop()
-    assert isinstance(event, _NoLongerInUse)
+    assert isinstance(event, OutOfUse)
     assert event.comput.target == i1
 
     # Nothing driven.
     event = events.pop()
-    assert isinstance(event, _BeforeCompute)
+    assert isinstance(event, BeforeComp)
     assert event.comput.target == i2
 
     event = events.pop()
-    assert isinstance(event, _ComputeTerm)
+    assert isinstance(event, CompTerm)
     assert event.comput.target == i2
     assert event.term_idx == 0
 
     # The last term in R1.
     event = events.pop()
-    assert isinstance(event, _ComputeTerm)
+    assert isinstance(event, CompTerm)
     assert event.comput.target == r1
     assert event.term_idx == 1
 
     # Finally, free I2.
     event = events.pop()
-    assert isinstance(event, _NoLongerInUse)
+    assert isinstance(event, OutOfUse)
     assert event.comput.target == i2
+
+    event = events.pop()
+    assert isinstance(event, EndBody)
 
     assert len(events) == 0
 
