@@ -1103,9 +1103,9 @@ def print_c_indexed(base, indices):
 
     The indexed will be printed as multi-dimensional array.
     """
-    return ''.join([base] + [
+    return base + ''.join(
         '[{}]'.format(i.index) for i in indices
-    ])
+    )
 
 
 class CPrinter(NaiveCodePrinter):
@@ -1150,11 +1150,9 @@ class CPrinter(NaiveCodePrinter):
         """
         ctx = event.comput.ctx
 
-        return ''.join(itertools.chain([
-            'double', ' ', ctx.base
-        ], (
+        return '{} {}{}'.format('double', ctx.base, ''.join(
             '[{}]'.format(i.size) for i in ctx.indices
-        )))
+        ))
 
     def print_begin_body(self, event: BeginBody):
         """Do nothing.
@@ -1311,9 +1309,7 @@ class FortranPrinter(NaiveCodePrinter):
         else:
             sizes_decl = ''
 
-        return ''.join([
-            decl_type, sizes_decl, ' :: ', ctx.base
-        ])
+        return '{}{} :: {}'.format(decl_type, sizes_decl, ctx.base)
 
     def print_begin_body(self, event: BeginBody):
         """Start the OpenMP environment if enabled.
@@ -1479,9 +1475,7 @@ class EinsumPrinter(BasePrinter):
             if self._dtype is None:
                 args = shape
             else:
-                args = ', '.join([
-                    shape, 'dtype={}'.format(self._dtype)
-                ])
+                args = '{}, dtype={}'.format(shape, self._dtype)
 
             lhs = '{}({})'.format(self._zeros, args)
         else:
