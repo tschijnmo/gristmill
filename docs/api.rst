@@ -34,13 +34,16 @@ Evaluation Optimization
 Code generation
 ~~~~~~~~~~~~~~~
 
+Code generation system
+......................
+
 .. autoclass:: BasePrinter
     :members:
     :special-members:
 
 .. autofunction:: mangle_base
 
-.. autoclass:: ImperativeCodePrinter
+.. autoclass:: NaiveCodePrinter
     :members:
     :special-members:
 
@@ -55,3 +58,25 @@ Code generation
 .. autoclass:: EinsumPrinter
     :members:
     :special-members:
+
+
+Internal facilities for printer writers
+.......................................
+
+.. autoclass:: gristmill.utils.JinjaEnv
+    :members:
+    :special-members:
+
+
+.. autoclass:: gristmill.generate.TensorDecl
+
+.. autoclass:: gristmill.generate.BeginBody
+
+.. autoclass:: gristmill.generate.BeforeComp
+
+.. autoclass:: gristmill.generate.CompTerm
+
+.. autoclass:: gristmill.generate.OutOfUse
+
+.. autoclass:: gristmill.generate.EndBody
+

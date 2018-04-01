@@ -200,7 +200,7 @@ class BasePrinter(abc.ABC):
         The base level of indentation for the base level.
 
     kwargs
-        All the keyword arguments are forwarded to :py:cls:`utils.JinjaEnv`
+        All the keyword arguments are forwarded to :py:class:`utils.JinjaEnv`
         constructor.
 
     """
@@ -725,12 +725,12 @@ class BasePrinter(abc.ABC):
         Internally, first the computations will be transformed into a linear
         list of events by :py:meth:`form_events`.  Possible events include
 
-        - :py:cls:`TensorDecl`
-        - :py:cls:`BeginBody`
-        - :py:cls:`BeforeComp`
-        - :py:cls:`CompTerm`
-        - :py:cls:`OutOfUse`
-        - :py:cls:`EndBody`
+        - :py:class:`generate.TensorDecl`
+        - :py:class:`generate.BeginBody`
+        - :py:class:`generate.BeforeComp`
+        - :py:class:`generate.CompTerm`
+        - :py:class:`generate.OutOfUse`
+        - :py:class:`generate.EndBody`
 
         Individual printers should override the abstract methods
 
