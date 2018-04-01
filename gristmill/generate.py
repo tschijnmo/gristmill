@@ -494,7 +494,7 @@ class BasePrinter(abc.ABC):
     # ------------------------------------------
     #
 
-    def form_events(self, defs: typing.Iterable[TensorDef], origs=None):
+    def form_events(self, defs: typing.Iterable[TensorDef]):
         """Form a linear list of full events from the definitions.
 
         This is a mostly developer method that can turn any list of tensor
@@ -523,13 +523,6 @@ class BasePrinter(abc.ABC):
 
         defs:
             The computations.
-
-        origs:
-            An optional iterable of the original tensor computations before the
-            optimization.  Computations of bases out of this iterable are
-            understood to be intermediates.  When it is not given, no
-            computation will be taken as intermediate.
-
 
         Notes
         -----
@@ -566,18 +559,13 @@ class BasePrinter(abc.ABC):
 
         """
 
-        if origs is None:
-            orig_bases = None
-        else:
-            orig_bases = {i.base for i in origs}
-
         # Generation of _TensorComput objects and rendering contexts.
         computs = []
         base2idx = {}
         interms = set()  # Bases for the intermediates
         for idx, def_ in enumerate(defs):
             base = def_.base
-            is_interm = origs is not None and base not in orig_bases
+            is_interm = hasattr(def_, 'if_interm') and def_.if_interm
             comput = TensorComp(
                 is_interm=is_interm, def_=def_, ctx=self.transl(def_)
             )
@@ -709,7 +697,7 @@ class BasePrinter(abc.ABC):
     # ---------------------------------------
     #
 
-    def doprint(self, eval_seq, origs=None, separate_decls=False):
+    def doprint(self, eval_seq, separate_decls=False):
         """Make full printing of the evaluation steps.
 
         This is the main driver function to generate code for tensor
@@ -720,11 +708,8 @@ class BasePrinter(abc.ABC):
 
         eval_seq
             An iterable of tensor definitions for the full evaluation sequence.
-
-        origs
-            An iterable of the original tensor definitions before the
-            optimization.  When it is not given, no computation is going to be
-            considered to be an intermediate.
+            Inside this sequence, the definitions having attribute ``if_interm``
+            set to true are considered to be intermediates.
 
         separate_decls
             When it is set to true, the declarations and the computations are
@@ -762,7 +747,7 @@ class BasePrinter(abc.ABC):
         computing.
 
         """
-        events = self.form_events(eval_seq, origs)
+        events = self.form_events(eval_seq)
         decls = []
         execs = []
 

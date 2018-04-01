@@ -86,12 +86,17 @@ def eval_seq_deps(simple_drudge):
     r2 = IndexedBase('R2')
 
     i1_def = dr.define_einst(i1[a, b], x[a, c] * y[c, b])
+    i1_def.if_interm = True
     i2_def = dr.define_einst(i2[a, b], y[a, c] * x[c, b])
+    i2_def.if_interm = True
     i3_def = dr.define_einst(i3, i1[a, a])
+    i3_def.if_interm = True
     r1_def = dr.define_einst(r1[a, b], i1[a, b] * i3 + i2[a, b])
+    r1_def.if_interm = False
     r2_def = dr.define_einst(r2[a, b], i1[a, b] * 2)
+    # No annotation for r2, should be taken as a result.
 
-    return [i1_def, i2_def, i3_def, r1_def, r2_def], [r1_def, r2_def]
+    return [i1_def, i2_def, i3_def, r1_def, r2_def]
 
 
 def test_base_printer_ctx(simple_drudge, colourful_tensor):
@@ -169,11 +174,11 @@ def test_base_printer_ctx(simple_drudge, colourful_tensor):
 
 def test_events_generation(eval_seq_deps):
     """Test the event generation facility in the base printer."""
-    eval_seq, origs = eval_seq_deps
+    eval_seq = eval_seq_deps
 
     with patch.object(BasePrinter, '__abstractmethods__', frozenset()):
         printer = BasePrinter(PythonPrinter())
-    events = printer.form_events(eval_seq, origs)
+    events = printer.form_events(eval_seq)
 
     i1 = IndexedBase('I1')
     i2 = IndexedBase('I2')
@@ -340,17 +345,15 @@ end program main
 def test_full_fortran_printer(eval_seq_deps, tmpdir):
     """Test the Fortran printer for full evaluation."""
 
-    eval_seq, origs = eval_seq_deps
+    eval_seq = eval_seq_deps
 
     printer = FortranPrinter(openmp=False)
-    evals = printer.doprint(eval_seq, origs)
+    evals = printer.doprint(eval_seq)
 
     code = _FORTRAN_FULL_TEST_CODE.format(eval=evals)
     assert _test_fortran_code(code, tmpdir)
 
-    sep_code = printer.doprint(
-        eval_seq, origs, separate_decls=True
-    )
+    sep_code = printer.doprint(eval_seq, separate_decls=True)
     assert len(sep_code) == 2
     assert evals == '\n'.join(sep_code)
 
@@ -452,9 +455,9 @@ diff = linalg.norm(x - expected)
 def test_full_einsum_printer(eval_seq_deps):
     """Test the full functionality of the einsum printer.
     """
-    eval_seq, origs = eval_seq_deps
+    eval_seq = eval_seq_deps
     printer = EinsumPrinter(base_indent=0)
-    code = printer.doprint(eval_seq, origs)
+    code = printer.doprint(eval_seq)
     exec_code = _FULL_EINSUM_DRIVER_CODE.format(eval=code)
     env = {}
     exec(exec_code, env, {})
