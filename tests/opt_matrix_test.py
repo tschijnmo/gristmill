@@ -531,5 +531,6 @@ def test_interleaving_res_interm(three_ranges, res_at_end):
         assert eval_seq[1].base == r1
     assert eval_seq[3].base == r2
 
-
-
+    for i in eval_seq:
+        assert i.if_interm == (not (str(i.base)[0] == 'R'))
+        continue

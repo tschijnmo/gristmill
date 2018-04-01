@@ -217,6 +217,12 @@ def optimize(
         For developers, when a mapping is given, some execution statistics will
         be dumped into it for analytics.
 
+    Returns
+    -------
+
+    A list of tensor definitions that is equivalent to the original definitions.
+    Intermediate tensors has an addition attribute of ``if_interm`` set to true.
+
     """
 
     # This interface function is primarily just for sanity checking and
@@ -1887,12 +1893,16 @@ class _Optimizer:
                 )(self.interm_fmt.format(next_idx))
                 next_idx += 1
                 substs[base] = final_base
+                if_interm = True
             else:
                 final_base = base
+                if_interm = False
 
-            res.append(TensorDef(
+            final = TensorDef(
                 final_base, exts, self._drudge.create_tensor(terms)
-            ).reset_dumms())
+            ).reset_dumms()
+            final.if_interm = if_interm
+            res.append(final)
             continue
 
         return res
