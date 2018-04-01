@@ -456,9 +456,6 @@ class JinjaEnv(Environment):
     indent
         The string used for indentation.  By default to four spaces.
 
-    base_indent
-        The base level of indentation for the base level.
-
     breakable_regex
         The regular expression giving the places where the line can be broke.
         The parts in the regular expression that needs to be kept can be put in
@@ -487,9 +484,9 @@ class JinjaEnv(Environment):
     """
 
     def __init__(
-            self, indent=' ' * 4, base_indent=1,
-            breakable_regex=None, max_width=80, line_cont='', cont_indent=1,
-            add_filters=None, add_globals=None, add_tests=None, add_templ=None
+            self, indent=' ' * 4, breakable_regex=None, max_width=80,
+            line_cont='', cont_indent=1, add_filters=None, add_globals=None,
+            add_tests=None, add_templ=None
     ):
         """Initialize the Jinja environment."""
 
@@ -503,7 +500,6 @@ class JinjaEnv(Environment):
         )
 
         self._indent = indent
-        self._base_indent = base_indent
         self._breakable_regex = breakable_regex
         self._max_width = max_width
         self._line_cont = line_cont
@@ -511,7 +507,6 @@ class JinjaEnv(Environment):
 
         # Add the default filters and tests for all printers.
         self.globals['indent'] = indent
-        self.globals['base_indent'] = base_indent
         self.globals['line_cont'] = line_cont
         self.globals['cont_indent'] = cont_indent
 
@@ -528,7 +523,7 @@ class JinjaEnv(Environment):
         if add_tests is not None:
             self.tests.update(add_tests)
 
-    def form_indent(self, level: int, add_base=True) -> str:
+    def form_indent(self, level: int) -> str:
         """Form an indentation space block.
 
         Parameters
@@ -538,14 +533,9 @@ class JinjaEnv(Environment):
             The level of the indentation. The content of the indentation is
             going to be the one set for the environment.
 
-        add_base
-            If base indent is to be added.
-
         """
 
-        return self._indent * (
-                (self._base_indent if add_base else 0) + level
-        )
+        return self._indent * level
 
     def wrap_line(self, line, level):
         """Wrap the given line within the given width.
@@ -610,18 +600,13 @@ class JinjaEnv(Environment):
         """Test if a given sequence is non-empty."""
         return len(sequence) > 0
 
-    def indent_lines(self, lines: str, level=0, add_base=True):
+    def indent_lines(self, lines: str, level):
         """Indent the lines in the given string.
 
-        This is mostly for usage inside Python script.  For the problem of base
-        indentation, we can either use :py:meth:`form_indent` for each line in
-        the template when it is convenient to do so, or can be just form
-        relative indentation and use this method to decorate all the lines from
-        the template.
-
+        The last line is guaranteed to be terminated by a new line.
         """
 
-        indent = self.form_indent(level, add_base=add_base)
+        indent = self.form_indent(level)
         return '\n'.join(
             indent + i for i in lines.splitlines()
-        )
+        ) + '\n'

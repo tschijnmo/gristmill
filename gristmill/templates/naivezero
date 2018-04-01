@@ -2,9 +2,9 @@
 Initialize a tensor to zero naively
 -----------------------------------
 #}
-{{ 0 | form_indent }}{% include "zero_prelude" ignore missing %}
+{% include "zero_prelude" ignore missing %}
 {{ indices | form_loop_opens }}
 {{ n_exts  | form_indent }}{{ indexed | trim }} = {{ zero_literal }}{{ stmt_end }}
 {{ indices | form_loop_closes }}
-{{ 0 | form_indent }}{% include "zero_finale" ignore missing %}
+{% include "zero_finale" ignore missing %}
 

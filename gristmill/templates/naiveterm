@@ -5,7 +5,7 @@ Add a term to a target tensor naively
 {#
     First loop over the external indices
 #}
-{{ 0 | form_indent }}{% include "term_prelude" ignore missing %}
+{% include "term_prelude" ignore missing %}
 {{ indices | form_loop_opens }}
 {#
     Next print out the summation loops
@@ -22,4 +22,4 @@ Add a term to a target tensor naively
     Print the closing of the loops
 #}{{ term.sums | form_loop_closes(n_exts) }}
 {{ indices | form_loop_closes }}
-{{ 0 | form_indent }}{% include "term_finale" ignore missing %}
+{% include "term_finale" ignore missing %}

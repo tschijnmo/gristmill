@@ -196,6 +196,9 @@ class BasePrinter(abc.ABC):
         tensor components directly in computation, since the unary function may
         be applied to the entire tensor for each component access.
 
+    base_indent
+        The base level of indentation for the base level.
+
     kwargs
         All the keyword arguments are forwarded to :py:cls:`utils.JinjaEnv`
         constructor.
@@ -204,7 +207,7 @@ class BasePrinter(abc.ABC):
 
     def __init__(
             self, scal_printer: Printer, indexed_proc_cb=lambda x: None,
-            extr_unary=False, **kwargs
+            extr_unary=False, base_indent=1, **kwargs
     ):
         """Initialize a base printer.
         """
@@ -215,6 +218,7 @@ class BasePrinter(abc.ABC):
         self._scal_printer = scal_printer
         self._indexed_proc = indexed_proc_cb
         self._extr_unary = extr_unary
+        self._base_indent = base_indent
 
     #
     # Translation to rendering contexts
@@ -413,16 +417,6 @@ class BasePrinter(abc.ABC):
                 self._indexed_proc(i)
                 continue
         return
-
-    def render(self, templ_name: str, ctx: types.SimpleNamespace) -> str:
-        """Render the given context for the given template.
-
-        Meaningful subclass methods can call this function for actual
-        functionality.
-        """
-
-        templ = self._env.get_template(templ_name)
-        return templ.render(ctx.__dict__)
 
     def _form_indices_ctx(
             self,
@@ -711,8 +705,8 @@ class BasePrinter(abc.ABC):
         return
 
     #
-    # Top-level driver functions
-    # --------------------------
+    # Top-level driver functions for printing
+    # ---------------------------------------
     #
 
     def doprint(self, eval_seq, origs=None, separate_decls=False):
@@ -783,21 +777,48 @@ class BasePrinter(abc.ABC):
         for event in events:
             if isinstance(event, TensorDecl):
                 code = self.print_decl(event)
-                if code is not None:
-                    decls.append(code)
+                self._add_section(decls, code)
             else:
                 cls = type(event)
                 if cls not in dispatch:
                     raise ValueError('Invalid event', event)
                 code = dispatch[cls](event)
-                if code is not None:
-                    execs.append(code)
+                self._add_section(execs, code)
             continue
 
         if separate_decls:
             return '\n'.join(decls), '\n'.join(execs)
         else:
             return '\n'.join(itertools.chain(decls, execs))
+
+    def _add_section(
+            self, secs: typing.List[str], new_sec: typing.Optional[str]
+    ):
+        """Add a new section of code to the list of sections.
+
+        When the new section is None, nothing will be added to the sections.
+        When it is added, all the lines will be indented to the base indentation
+        set, with a new line guaranteed on the last line.
+        """
+        if new_sec is not None:
+            secs.append(self._env.indent_lines(
+                new_sec, self._base_indent
+            ))
+
+    def render(self, templ_name: str, ctx: types.SimpleNamespace) -> str:
+        """Render the given context for the given template.
+
+        Meaningful subclass methods can call this function for actual
+        functionality.
+        """
+
+        templ = self._env.get_template(templ_name)
+        return templ.render(ctx.__dict__)
+
+    #
+    # Abstract method to be override by printers
+    # ------------------------------------------
+    #
 
     @abc.abstractmethod
     def print_decl(self, event: TensorDecl) -> typing.Optional[str]:
@@ -1130,7 +1151,7 @@ class CPrinter(NaiveCodePrinter):
         ctx = event.comput.ctx
 
         return ''.join(itertools.chain([
-            self._env.form_indent(0), 'double', ' ', ctx.base
+            'double', ' ', ctx.base
         ], (
             '[{}]'.format(i.size) for i in ctx.indices
         )))
@@ -1291,7 +1312,7 @@ class FortranPrinter(NaiveCodePrinter):
             sizes_decl = ''
 
         return ''.join([
-            self._env.form_indent(0), decl_type, sizes_decl, ' :: ', ctx.base
+            decl_type, sizes_decl, ' :: ', ctx.base
         ])
 
     def print_begin_body(self, event: BeginBody):
@@ -1310,7 +1331,6 @@ class FortranPrinter(NaiveCodePrinter):
         """
 
         explicit_bounds = self._explicit_bounds
-        indent = self._env.form_indent(0)
 
         zero_out = super().print_before_comp(event)
 
@@ -1321,10 +1341,8 @@ class FortranPrinter(NaiveCodePrinter):
         if if_alloc:
             ctx = event.comput.ctx
             bounds = self._form_bounds(ctx, explicit_bounds)
-            alloc = ''.join([
-                indent, 'allocate(', ctx.base, '(', bounds, '))'
-            ])
-            return '\n'.join([alloc, zero_out])
+            alloc = 'allocate({}({}))\n'.format(ctx.base, bounds)
+            return alloc + zero_out
         else:
             return zero_out
 
@@ -1336,9 +1354,7 @@ class FortranPrinter(NaiveCodePrinter):
         if not self._heap_interm or len(ctx.indices) == 0:
             return None
 
-        return ''.join([
-            self._env.form_indent(0), 'deallocate(', ctx.base, ')'
-        ])
+        return 'deallocate({})'.format(ctx.base)
 
     def print_end_body(self, event: EndBody):
         """Close OpenMP parallel body when enabled.
@@ -1471,9 +1487,7 @@ class EinsumPrinter(BasePrinter):
         else:
             lhs = '0'
 
-        return self._env.indent_lines(''.join([
-            ctx.base, ' = ', lhs
-        ]))
+        return '{} = {}'.format(ctx.base, lhs)
 
     def print_comp_term(self, event: CompTerm):
         """Print the evaluation of a term to be added to the target.
@@ -1484,14 +1498,12 @@ class EinsumPrinter(BasePrinter):
         code = self.render('einsum', ctx)
         del ctx.term
 
-        return self._env.indent_lines(code, 0)
+        return code
 
     def print_out_of_use(self, event: OutOfUse):
         """Remove an used intermediate tensor.
         """
-        return self._env.indent_lines('del {}'.format(
-            event.comput.ctx.base
-        ))
+        return 'del {}'.format(event.comput.ctx.base)
 
     def print_end_body(self, event: EndBody):
         """Do nothing.
