@@ -92,3 +92,5 @@ ENV/
 /.idea/markdown*
 /tests/test-env.sh
 /scratch/
+.pytest_cache
+tests/*.pickle
