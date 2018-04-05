@@ -9,7 +9,7 @@ import typing
 
 from drudge.term import try_resolve_range
 from sympy import (
-    Expr, Mul, Pow, Integer, Rational, Add, Indexed, IndexedBase
+    Expr, Mul, Pow, Integer, Rational, Add, Indexed, IndexedBase, Symbol
 )
 from sympy.printing.ccode import CCodePrinter
 from sympy.printing.fcode import FCodePrinter
@@ -183,8 +183,9 @@ class BasePrinter(abc.ABC):
     indexed_proc_cb
         It is going to be called with context nodes with ``base`` and
         ``indices`` (in both the root and for each indexed factors, as described
-        in :py:meth:`transl`) to do additional processing.  For most tasks,
-        :py:func:`mangle_base` can be helpful.
+        in :py:meth:`transl`), as well as the printing function for scalars, to
+        do additional processing.  For most tasks, :py:func:`mangle_base` can be
+        helpful.
 
     extr_unary
         Enable extraction of unary functions over a tensor.  When it is set, an
@@ -206,7 +207,7 @@ class BasePrinter(abc.ABC):
     """
 
     def __init__(
-            self, scal_printer: Printer, indexed_proc_cb=lambda x: None,
+            self, scal_printer: Printer, indexed_proc_cb=lambda x, p: None,
             extr_unary=False, base_indent=1, **kwargs
     ):
         """Initialize a base printer.
@@ -417,10 +418,10 @@ class BasePrinter(abc.ABC):
         """
 
         if term is None:
-            self._indexed_proc(tensor_entry)
+            self._indexed_proc(tensor_entry, self._print_scal)
         else:
             for i in term_entry.indexed_factors:
-                self._indexed_proc(i)
+                self._indexed_proc(i, self._print_scal)
                 continue
         return
 
@@ -894,18 +895,30 @@ def mangle_base(func):
             else:
                 return base
 
-    can be given to the ``indexed_proc_cb`` argument of
-    :py:meth:`BasePrinter.__init__` constructor, so that all appearances of
-    ``f`` will be printed as the correct slice depending on the range of the
-    indices.  When different slices of ``f`` are actually stored in different
-    variables, we can also return the correct variable name inside the function.
+    can be given to the ``indexed_proc_cb`` argument of :py:class:`BasePrinter`
+    constructor, so that all appearances of ``f`` will be printed as the correct
+    slice depending on the range of the indices.  When different slices of ``f``
+    are actually stored in different variables, we can also return the correct
+    variable name inside the function.
 
     """
 
     @functools.wraps(func)
-    def _mangle_base(node):
+    def _mangle_base(node, print_expr):
         """Mangle the base name according to user-given mangling function."""
-        node.base = func(node.base, node.indices)
+        orig = node.base_expr
+
+        if isinstance(orig, (Symbol, IndexedBase)):
+            new_label = func(node.base, node.indices)
+            node.base = new_label
+            node.base_expr = type(node.base)(new_label)
+        else:
+            symb = _get_only_symb(orig)
+            new_label = func(str(symb), node.indices)
+            base_expr = orig.xreplace({symb: Symbol(new_label)})
+            node.base_expr = base_expr
+            node.base = print_expr(base_expr)
+
         return
 
     return _mangle_base
@@ -1494,3 +1507,19 @@ class EinsumPrinter(BasePrinter):
         """Do nothing.
         """
         return None
+
+
+#
+# Tiny utilities
+# --------------
+#
+
+def _get_only_symb(expr: Expr):
+    """Get the only symbol in the given expression.
+
+    The expression has to have only one symbol.
+    """
+
+    symbols = expr.atoms(Symbol)
+    assert len(symbols) == 1
+    return symbols.pop()
