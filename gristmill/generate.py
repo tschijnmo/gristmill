@@ -911,7 +911,7 @@ def mangle_base(func):
         if isinstance(orig, (Symbol, IndexedBase)):
             new_label = func(node.base, node.indices)
             node.base = new_label
-            node.base_expr = type(node.base)(new_label)
+            node.base_expr = type(orig)(new_label)
         else:
             symb = _get_only_symb(orig)
             new_label = func(str(symb), node.indices)
