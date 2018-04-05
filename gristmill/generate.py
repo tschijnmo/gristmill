@@ -1407,7 +1407,7 @@ _FORTRAN_OMP_TERM_PRELUDE = """\
 !$omp do schedule(static)
 {% else %}
 {% if (term.sums | length) > 0 %}
-!$omp do schedule(static) reduction(+:{{ lhs }})
+!$omp do schedule(static) reduction(+:{{ base }})
 {% else %}
 !$omp single
 {% endif %}
