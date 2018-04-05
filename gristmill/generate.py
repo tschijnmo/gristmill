@@ -191,11 +191,11 @@ class BasePrinter(abc.ABC):
         Enable extraction of unary functions over a tensor.  When it is set, an
         application of a unary function over tensor components, like
         :math:`\sin(t[i, j])` will be recast into something like
-        :math:`\sin(t)[i, j]`.  This is generally for environments with
-        automatic broadcasting of unary function onto tensor components, like
-        NumPy.  Note that this can be *very inefficient** for printers accessing
-        tensor components directly in computation, since the unary function may
-        be applied to the entire tensor for each component access.
+        :math:`\sin(t)[i, j]`.  For environments with automatic broadcasting of
+        unary function onto tensor components, like NumPy, this can be actually
+        the way they can be printed.  For printers accessing tensor components
+        directly in computation, they normally need to be reorganized back to
+        the original form during the printing.
 
     base_indent
         The base level of indentation for the base level.
@@ -208,7 +208,7 @@ class BasePrinter(abc.ABC):
 
     def __init__(
             self, scal_printer: Printer, indexed_proc_cb=lambda x, p: None,
-            extr_unary=False, base_indent=1, **kwargs
+            extr_unary=True, base_indent=1, **kwargs
     ):
         """Initialize a base printer.
         """
@@ -491,7 +491,7 @@ class BasePrinter(abc.ABC):
             return args[0].args[0]
 
         repled = factor.replace(Indexed, _replace_indexed)
-        if len(indices) > 1:
+        if len(indices) != 1:
             return factor, None
         else:
             return repled, indices[0]
@@ -1020,7 +1020,23 @@ class NaiveCodePrinter(BasePrinter):
                 factors.append(term_entry.numerator)
 
             for i in term_entry.indexed_factors:
-                i.indexed = self._print_indexed(i.base, i.indices)
+                base_expr = i.base_expr
+                if isinstance(base_expr, (Indexed, Symbol)):
+                    # Plain indexed quantity.
+                    i.indexed = self._print_indexed(i.base, i.indices)
+                else:
+                    # Indexed quantity wrapped under a unary function.
+                    #
+                    # cf BasePrinter._extr_base_indices.
+                    symb = _get_only_symb(base_expr)
+                    placeholder_name = 'GRISTMILLINTERNALPLACEHOLDER'
+                    placeholder = Symbol(placeholder_name)
+                    top = self._print_scal(base_expr.xreplace({
+                        symb: placeholder
+                    }))
+                    indexed = self._print_indexed(str(symb), i.indices)
+                    i.indexed = top.replace(placeholder_name, indexed)
+
                 factors.append(i.indexed)
                 continue
 
