@@ -237,6 +237,9 @@ class BasePrinter(abc.ABC):
         base
             A printed form for the base of the tensor definition.
 
+        base_expr
+            The expression for the base of the definition.
+
         indices
             A list of external indices.  For each entry, keys ``index`` and
             ``range`` are present to give the printed form of the index and the
@@ -270,6 +273,7 @@ class BasePrinter(abc.ABC):
             indexed_factors
                 The indexed factors of the term.  Each is given as a simple
                 namespace with key ``base`` for the printed form of the base,
+                key ``base_expr`` giving the original expression of the base,
                 and a key ``indices`` giving the indices to the key, in the same
                 format as the ``indices`` field of the base context.
 
@@ -292,6 +296,7 @@ class BasePrinter(abc.ABC):
         ctx.orig_def = tensor_def
 
         base = tensor_def.base
+        ctx.base_expr = base
         ctx.base = self._print_scal(
             base.label if isinstance(base, IndexedBase) else base
         )
@@ -371,6 +376,7 @@ class BasePrinter(abc.ABC):
                 base, indices = self._extr_base_indices(factor)
                 if indices is not None:
                     factor_ctx = types.SimpleNamespace()
+                    factor_ctx.base_expr = base
                     factor_ctx.base = self._print_scal(base)
                     factor_ctx.indices = self._form_indices_ctx((
                         (i, try_resolve_range(i, indices_dict, resolvers))
