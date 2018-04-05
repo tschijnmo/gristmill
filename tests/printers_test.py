@@ -51,7 +51,7 @@ def colourful_tensor(simple_drudge):
     a, b, c = p.R_dumms[:3]
 
     tensor = dr.define(x[a, b], (
-            ((2 * r) / (3 * s)) * u[b, a] -
+            ((2 * r) / (3 * s)) * (u[b, a]) ** 2 -
             dr.sum((c, p.R), u[a, c] * v[c, b] * c ** 2 / 2)
     ))
 
@@ -137,7 +137,7 @@ def test_base_printer_ctx(simple_drudge, colourful_tensor):
 
             assert len(term.indexed_factors) == 1
             factor = term.indexed_factors[0]
-            assert factor.base == 'u2'
+            assert factor.base == 'u2**2'
             for i, j in zip(factor.indices, ['b', 'a']):
                 check_range(i, j)
                 continue
@@ -329,7 +329,7 @@ do a = 1, n
     diag(a, a) = real(a ** 2) / 2
 end do
 
-expected = transpose(u) * 2 * r / (3 * s)
+expected = (transpose(u)**2) * 2 * r / (3 * s)
 expected = expected - matmul(u, matmul(diag, v))
 
 if (any(abs(x - expected) / abs(expected) > 1.0E-5)) then
