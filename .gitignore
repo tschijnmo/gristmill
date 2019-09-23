@@ -94,3 +94,6 @@ ENV/
 /scratch/
 .pytest_cache
 tests/*.pickle
+
+# For dockerignore
+.git
