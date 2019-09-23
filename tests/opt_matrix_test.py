@@ -332,6 +332,7 @@ def test_general_matrix_problem(three_ranges):
 #
 
 
+@pytest.mark.xfail(reason='Flaky until the following test is fixed')
 def test_disconnected_outer_product_factorization(three_ranges):
     """Test optimization of expressions with disconnected outer products.
     """
@@ -368,6 +369,39 @@ def test_disconnected_outer_product_factorization(three_ranges):
     leading_cost = get_flop_cost(res, leading=True)
     assert cost == 4 * m ** 2
     assert leading_cost == 4 * m ** 2
+
+
+@pytest.mark.xfail(reason='TODO: Needs investigation')
+def test_factorization_needing_canonicalization(three_ranges):
+    """Test a simple factorization needing canonicalization.
+
+    The inability of gristmill to fully optimize this test is the ultimate
+    reason why the above test is flaky.
+    """
+
+    dr = three_ranges
+    p = dr.names
+
+    m = p.m
+    a, b = p.a, p.b
+
+    x = IndexedBase('X')
+    y = IndexedBase('Y')
+    z = IndexedBase('Z')
+    t = Symbol('T')
+
+    # The target.
+    target = dr.define_einst(
+        t, x[b, a] * z[a, b] + y[a, b] * z[b, a]
+    )
+    targets = [target]
+
+    # The actual optimization.
+    res = optimize(targets)
+    assert len(res) == 2
+
+    # Test the correctness.
+    assert verify_eval_seq(res, targets, simplify=False)
 
 
 def test_optimization_of_common_terms(three_ranges):
