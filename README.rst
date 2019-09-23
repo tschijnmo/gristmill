@@ -1,3 +1,6 @@
+.. image:: https://circleci.com/gh/tschijnmo/gristmill.svg?style=shield
+    :target: https://circleci.com/gh/tschijnmo/gristmill
+
 .. image:: https://travis-ci.org/tschijnmo/gristmill.svg?branch=master
     :target: https://travis-ci.org/tschijnmo/gristmill
 
