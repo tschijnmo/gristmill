@@ -98,7 +98,7 @@ template <typename T> static inline Handle build_idx_tuple(const T& bits)
 
     Py_ssize_t curr = 0;
     for (auto i = bits.begin(); i; ++i, ++curr) {
-        res.setitem(curr, Handle(long{ *i }));
+        res.setitem(curr, Handle(static_cast<long>(*i)));
     }
 
     assert(curr == size);
@@ -244,7 +244,7 @@ static PyObject* parenth_func(PyObject* self, PyObject* args)
             }
         }
 
-        Mode mode;
+        Mode mode{};
         switch (mode_inp) {
         case 0:
             mode = Mode::GREEDY;
