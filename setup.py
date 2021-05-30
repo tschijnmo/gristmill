@@ -43,5 +43,5 @@ setup(
     packages=find_packages(),
     ext_modules=[parenth],
     package_data={'gristmill': ['templates/*']},
-    install_requires=['drudge', 'Jinja2', 'sympy', 'numpy', 'networkx>=2.0']
+    install_requires=['drudge', 'Jinja2', 'sympy>=1.7', 'numpy', 'networkx>=2.0']
 )
