@@ -11,8 +11,8 @@ from drudge.term import try_resolve_range
 from sympy import (
     Expr, Mul, Pow, Integer, Rational, Add, Indexed, IndexedBase, Symbol
 )
-from sympy.printing.ccode import CCodePrinter
-from sympy.printing.fcode import FCodePrinter
+from sympy.printing.c import C89CodePrinter
+from sympy.printing.fortran import FCodePrinter
 from sympy.printing.printer import Printer
 from sympy.printing.python import PythonPrinter
 
@@ -1143,7 +1143,7 @@ class CPrinter(NaiveCodePrinter):
         """
 
         super().__init__(
-            CCodePrinter(), print_indexed_cb=print_indexed_cb,
+            C89CodePrinter(), print_indexed_cb=print_indexed_cb,
             line_cont='\\', stmt_end=';', **kwargs
         )
 
