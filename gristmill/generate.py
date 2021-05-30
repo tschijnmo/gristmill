@@ -1247,8 +1247,6 @@ class FortranPrinter(NaiveCodePrinter):
 
         if openmp:
             add_templ = {
-                'zero_prelude': _FORTRAN_OMP_ZERO_PRELUDE,
-                'zero_finale': _FORTRAN_OMP_ZERO_FINALE,
                 'term_prelude': _FORTRAN_OMP_TERM_PRELUDE,
                 'term_finale': _FORTRAN_OMP_TERM_FINALE,
             }
@@ -1371,14 +1369,17 @@ class FortranPrinter(NaiveCodePrinter):
 
         explicit_bounds = self._explicit_bounds
 
-        zero_out = super().print_before_comp(event)
+        ctx = event.comput.ctx
+        zero_out = '{} = {}'.format(ctx.base, '0.0')
+        if self._openmp:
+            zero_out = _FORTRAN_OMP_ZERO_PRELUDE + zero_out + '\n' \
+                    + _FORTRAN_OMP_ZERO_FINALE
 
         if_alloc = (
                 self._heap_interm and event.comput.is_interm
                 and len(event.comput.ctx.indices) > 0
         )
         if if_alloc:
-            ctx = event.comput.ctx
             bounds = self._form_bounds(ctx, explicit_bounds)
             alloc = 'allocate({}({}))\n'.format(ctx.base, bounds)
             return alloc + zero_out
@@ -1411,18 +1412,10 @@ _FORTRAN_OMP_START = """\
 _FORTRAN_OMP_END = "!$omp end parallel\n"
 
 _FORTRAN_OMP_ZERO_PRELUDE = """\
-{% if n_exts > 0 %}
-!$omp do schedule(static)
-{% else %}
 !$omp single
-{% endif %}
 """
 _FORTRAN_OMP_ZERO_FINALE = """\
-{% if n_exts > 0 %}
-!$omp end do
-{% else %}
 !$omp end single
-{% endif %}
 """
 
 _FORTRAN_OMP_TERM_PRELUDE = """\
