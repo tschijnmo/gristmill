@@ -1285,6 +1285,29 @@ class FortranPrinter(NaiveCodePrinter):
         return self._print_scal(lower + Integer(1))
 
     #
+    # Use optimized the loop structure for Fortran (column-major) arrays.
+    #
+
+    def _form_loop_opens(self, indices, base_level=0):
+        """Form the nested loop openings for Fortran.
+        """
+        return '\n'.join(
+            self._env.form_indent(base_level + i) + self.form_loop_open(v)
+            for i, v in enumerate(reversed(indices))
+        )
+
+    def _form_loop_closes(self, indices, base_level=0):
+        """Form the nested loop closings for Fortran.
+        """
+        n_indices = len(indices)
+
+        return '\n'.join(
+            self._env.form_indent(base_level + n_indices - i - 1)
+            + self.form_loop_close(v)
+            for i, v in enumerate(indices)
+        )
+
+    #
     # For base naive printer.
     #
 
