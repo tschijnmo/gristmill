@@ -1247,8 +1247,6 @@ class FortranPrinter(NaiveCodePrinter):
 
         if openmp:
             add_templ = {
-                'zero_prelude': _FORTRAN_OMP_ZERO_PRELUDE,
-                'zero_finale': _FORTRAN_OMP_ZERO_FINALE,
                 'term_prelude': _FORTRAN_OMP_TERM_PRELUDE,
                 'term_finale': _FORTRAN_OMP_TERM_FINALE,
             }
@@ -1283,6 +1281,29 @@ class FortranPrinter(NaiveCodePrinter):
         """Print the lower bound based on the Fortran convention.
         """
         return self._print_scal(lower + Integer(1))
+
+    #
+    # Use optimized the loop structure for Fortran (column-major) arrays.
+    #
+
+    def _form_loop_opens(self, indices, base_level=0):
+        """Form the nested loop openings for Fortran.
+        """
+        return '\n'.join(
+            self._env.form_indent(base_level + i) + self.form_loop_open(v)
+            for i, v in enumerate(reversed(indices))
+        )
+
+    def _form_loop_closes(self, indices, base_level=0):
+        """Form the nested loop closings for Fortran.
+        """
+        n_indices = len(indices)
+
+        return '\n'.join(
+            self._env.form_indent(base_level + n_indices - i - 1)
+            + self.form_loop_close(v)
+            for i, v in enumerate(indices)
+        )
 
     #
     # For base naive printer.
@@ -1348,14 +1369,17 @@ class FortranPrinter(NaiveCodePrinter):
 
         explicit_bounds = self._explicit_bounds
 
-        zero_out = super().print_before_comp(event)
+        ctx = event.comput.ctx
+        zero_out = '{} = {}'.format(ctx.base, '0.0')
+        if self._openmp:
+            zero_out = _FORTRAN_OMP_ZERO_PRELUDE + zero_out + '\n' \
+                    + _FORTRAN_OMP_ZERO_FINALE
 
         if_alloc = (
                 self._heap_interm and event.comput.is_interm
                 and len(event.comput.ctx.indices) > 0
         )
         if if_alloc:
-            ctx = event.comput.ctx
             bounds = self._form_bounds(ctx, explicit_bounds)
             alloc = 'allocate({}({}))\n'.format(ctx.base, bounds)
             return alloc + zero_out
@@ -1388,18 +1412,10 @@ _FORTRAN_OMP_START = """\
 _FORTRAN_OMP_END = "!$omp end parallel\n"
 
 _FORTRAN_OMP_ZERO_PRELUDE = """\
-{% if n_exts > 0 %}
-!$omp do schedule(static)
-{% else %}
 !$omp single
-{% endif %}
 """
 _FORTRAN_OMP_ZERO_FINALE = """\
-{% if n_exts > 0 %}
-!$omp end do
-{% else %}
 !$omp end single
-{% endif %}
 """
 
 _FORTRAN_OMP_TERM_PRELUDE = """\
