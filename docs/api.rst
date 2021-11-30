@@ -47,7 +47,7 @@ Code generation system
     :members:
     :special-members:
 
-.. autoclass:: C89CodePrinter
+.. autoclass:: CPrinter
     :members:
     :special-members:
 
