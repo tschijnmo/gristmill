@@ -7,6 +7,7 @@
 #include <Python.h>
 
 #include <cassert>
+#include <cstddef>
 #include <limits>
 #include <vector>
 
